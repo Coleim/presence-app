@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "app-presence",
-    "slug": "app-presence",
+    "slug": "cahier-de-presence",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -27,6 +27,12 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ead101dc-fbae-475f-922c-b4b372afd578"
+      }
+    },
+    "owner": "coleim"
   }
 }
