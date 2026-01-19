@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { supabase } from '../lib/supabase';
@@ -83,9 +82,8 @@ const AuthScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Connexion</Text>
+    <View style={styles.container}>
+      <Text style={styles.title}>Connexion</Text>
         <Text style={styles.subtitle}>Connectez-vous en ligne ou utilisez le mode hors ligne</Text>
 
         <View style={styles.inputContainer}>
@@ -134,12 +132,10 @@ const AuthScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </View>
-    </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,

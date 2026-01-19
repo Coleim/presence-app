@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { UserProvider } from './contexts/UserContext';
 import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -37,9 +38,9 @@ function AppNavigator() {
         <Stack.Screen name="Auth" component={AuthScreen} />
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ClubList" component={ClubListScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="CreateClub" component={CreateClubScreen} options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="CreateClub" component={CreateClubScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ClubDetails" component={ClubDetailsScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="AddSession" component={AddSessionScreen} options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="AddSession" component={AddSessionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AddParticipant" component={AddParticipantScreen} options={{ headerShown: false }} />
         <Stack.Screen name="SessionSelection" component={SessionSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Attendance" component={AttendanceScreen} options={{ headerShown: false }} />
@@ -51,8 +52,10 @@ function AppNavigator() {
 
 export default function App() {
   return (
-    <UserProvider>
-      <AppNavigator />
-    </UserProvider>
+    <SafeAreaView style={{ flex: 1 }}>
+      <UserProvider>
+        <AppNavigator />
+      </UserProvider>
+    </SafeAreaView>
   );
 }

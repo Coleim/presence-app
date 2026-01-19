@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -30,7 +29,7 @@ export default function ClubListScreen({ navigation }) {
   }, [clubs, navigation]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -68,12 +67,11 @@ export default function ClubListScreen({ navigation }) {
           ListEmptyComponent={<Text style={styles.emptyText}>Aucun club pour le moment</Text>}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],

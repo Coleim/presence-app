@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -24,12 +23,48 @@ export default function ClubDetailsScreen({ route, navigation }) {
 
   const fetchSessions = async () => {
     const data = await dataService.getSessions(club.id);
-    setSessions(data);
+    
+    // Helper to get day index for sorting
+    const getDayIndex = (dayName: string) => {
+      const frenchDays = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+      const englishDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      let index = frenchDays.indexOf(dayName);
+      if (index === -1) {
+        index = englishDays.indexOf(dayName);
+      }
+      return index === -1 ? 999 : index; // Unknown days at the end
+    };
+    
+    // Sort sessions by day of week, then by start time
+    const sortedData = [...data].sort((a, b) => {
+      const dayA = getDayIndex(a.day_of_week);
+      const dayB = getDayIndex(b.day_of_week);
+      
+      if (dayA !== dayB) {
+        return dayA - dayB;
+      }
+      
+      // Same day, sort by time
+      return a.start_time.localeCompare(b.start_time);
+    });
+    
+    setSessions(sortedData);
   };
 
   const fetchParticipants = async () => {
     const data = await dataService.getParticipants(club.id);
-    setParticipants(data);
+    
+    // Sort participants alphabetically by last name, then first name
+    const sortedData = [...data].sort((a, b) => {
+      const lastNameCompare = a.last_name.localeCompare(b.last_name, 'fr', { sensitivity: 'base' });
+      if (lastNameCompare !== 0) {
+        return lastNameCompare;
+      }
+      return a.first_name.localeCompare(b.first_name, 'fr', { sensitivity: 'base' });
+    });
+    
+    setParticipants(sortedData);
   };
 
   const deleteClub = async () => {
@@ -50,8 +85,44 @@ export default function ClubDetailsScreen({ route, navigation }) {
     );
   };
 
+  const deleteSession = async (sessionId: string, sessionName: string) => {
+    Alert.alert(
+      'Supprimer la session',
+      `Voulez-vous supprimer la session ${sessionName} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            await dataService.deleteSession(sessionId);
+            fetchSessions(); // Refresh list
+          }
+        }
+      ]
+    );
+  };
+
+  const deleteParticipant = async (participantId: string, participantName: string) => {
+    Alert.alert(
+      'Supprimer le participant',
+      `Voulez-vous supprimer ${participantName} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            await dataService.deleteParticipant(participantId);
+            fetchParticipants(); // Refresh list
+          }
+        }
+      ]
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -96,11 +167,14 @@ export default function ClubDetailsScreen({ route, navigation }) {
             data={sessions}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => (
-              <View style={styles.listItem}>
+              <TouchableOpacity 
+                style={styles.listItem}
+                onLongPress={() => deleteSession(item.id, `${item.day_of_week} ${item.start_time}-${item.end_time}`)}
+              >
                 <Text style={styles.listItemText}>
                   {item.day_of_week} {item.start_time}-{item.end_time}
                 </Text>
-              </View>
+              </TouchableOpacity>
             )}
             scrollEnabled={false}
             ListEmptyComponent={<Text style={styles.emptyText}>Aucune session</Text>}
@@ -113,11 +187,14 @@ export default function ClubDetailsScreen({ route, navigation }) {
             data={participants}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => (
-              <View style={styles.listItem}>
+              <TouchableOpacity 
+                style={styles.listItem}
+                onLongPress={() => deleteParticipant(item.id, `${item.first_name} ${item.last_name}`)}
+              >
                 <Text style={styles.listItemText}>
-                  {item.first_name} {item.last_name}
+                  {item.last_name.toUpperCase()} {item.first_name}
                 </Text>
-              </View>
+              </TouchableOpacity>
             )}
             scrollEnabled={false}
             ListEmptyComponent={<Text style={styles.emptyText}>Aucun participant</Text>}
@@ -130,12 +207,11 @@ export default function ClubDetailsScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],

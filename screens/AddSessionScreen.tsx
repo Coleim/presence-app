@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { dataService } from '../lib/dataService';
@@ -8,7 +7,7 @@ import { theme } from '../lib/theme';
 
 export default function AddSessionScreen({ route, navigation }) {
   const { clubId } = route.params;
-  const [day, setDay] = useState('Monday');
+  const [day, setDay] = useState('Lundi');
   const [startTime, setStartTime] = useState(new Date(2000, 0, 1, 9, 0)); // 9:00 AM
   const [endTime, setEndTime] = useState(new Date(2000, 0, 1, 10, 0)); // 10:00 AM
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -44,7 +43,7 @@ export default function AddSessionScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -56,7 +55,7 @@ export default function AddSessionScreen({ route, navigation }) {
         </View>
       </View>
 
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.label}>Jour de la semaine</Text>
         <View style={styles.pickerContainer}>
           <Picker
@@ -106,13 +105,12 @@ export default function AddSessionScreen({ route, navigation }) {
         <TouchableOpacity style={styles.buttonPrimary} onPress={addSession}>
           <Text style={styles.buttonPrimaryText}>Ajouter la session</Text>
         </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],
@@ -143,6 +141,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  contentContainer: {
     padding: theme.space[4],
   },
   label: {

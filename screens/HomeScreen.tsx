@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -49,35 +48,72 @@ export default function HomeScreen({ navigation }) {
     console.log('HomeScreen: sessions loaded:', sessions.length);
     const now = new Date();
     const upcoming = [];
+    const weeksToGenerate = 4; // Generate 4 weeks of sessions
+
+    // Helper to get day index, handling both French and English
+    const getDayIndex = (dayName: string) => {
+      const frenchDays = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+      const englishDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      let index = frenchDays.indexOf(dayName);
+      if (index === -1) {
+        index = englishDays.indexOf(dayName);
+      }
+      return index;
+    };
 
     for (const session of sessions) {
       console.log('HomeScreen: processing session:', session.day_of_week, session.start_time);
-      const dayIndex = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(session.day_of_week);
+      const dayIndex = getDayIndex(session.day_of_week);
       console.log('HomeScreen: dayIndex for', session.day_of_week, 'is', dayIndex);
-      let nextDate = new Date(now);
-      nextDate.setDate(now.getDate() + (dayIndex - now.getDay() + 7) % 7);
-
-      if (nextDate <= now && nextDate.toDateString() === now.toDateString()) {
-        // Today, check if session is upcoming
+      
+      if (dayIndex === -1) {
+        console.warn('Unknown day name:', session.day_of_week);
+        continue; // Skip this session if day is not recognized
+      }
+      
+      // Generate multiple weeks of this session
+      for (let week = 0; week < weeksToGenerate; week++) {
+        // Calculate days until next occurrence of this day
+        const daysUntilNext = (dayIndex - now.getDay() + 7) % 7;
+        let nextDate = new Date(now);
+        nextDate.setDate(now.getDate() + daysUntilNext + (week * 7));
+        
+        // Parse session time
         const [hours, minutes] = session.start_time.split(':').map(Number);
         const sessionTime = new Date(nextDate);
         sessionTime.setHours(hours, minutes, 0, 0);
-        if (sessionTime > now) {
-          const presentCount = await getPresentCount(session, nextDate.toISOString().split('T')[0]);
-          upcoming.push({ ...session, club, date: nextDate, displayDate: 'Aujourd\'hui', dateObj: nextDate, presentCount });
+        
+        // Skip if this session has already passed
+        if (sessionTime <= now) {
+          continue;
         }
-      } else if (nextDate > now) {
-        // Future session
+        
+        // Determine display date
+        let displayDate;
         const tomorrow = new Date(now);
         tomorrow.setDate(now.getDate() + 1);
-
-        let displayDate;
-        if (nextDate.toDateString() === tomorrow.toDateString()) {
+        tomorrow.setHours(0, 0, 0, 0);
+        const nextDateOnly = new Date(nextDate);
+        nextDateOnly.setHours(0, 0, 0, 0);
+        const todayOnly = new Date(now);
+        todayOnly.setHours(0, 0, 0, 0);
+        
+        if (nextDateOnly.getTime() === todayOnly.getTime()) {
+          displayDate = 'Aujourd\'hui';
+        } else if (nextDateOnly.getTime() === tomorrow.getTime()) {
           displayDate = 'Demain';
         } else {
-          displayDate = nextDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+          // Include day of week in the display
+          displayDate = nextDate.toLocaleDateString('fr-FR', { 
+            weekday: 'long',
+            day: 'numeric', 
+            month: 'long'
+          });
+          // Capitalize first letter
+          displayDate = displayDate.charAt(0).toUpperCase() + displayDate.slice(1);
         }
-
+        
         const presentCount = await getPresentCount(session, nextDate.toISOString().split('T')[0]);
         upcoming.push({ ...session, club, date: nextDate.toISOString().split('T')[0], displayDate, dateObj: nextDate, presentCount });
       }
@@ -115,22 +151,22 @@ export default function HomeScreen({ navigation }) {
 
   if (clubs.length === 0) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.screenContainer}>
         <View style={styles.container}>
-          <Text style={styles.title}>Aucun club pour le moment</Text>
-          <Text style={styles.subtitle}>Créez votre premier club !</Text>
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
-              <Text style={styles.buttonPrimaryText}>Créer un club</Text>
-            </TouchableOpacity>
+            <Text style={styles.title}>Aucun club pour le moment</Text>
+            <Text style={styles.subtitle}>Créez votre premier club !</Text>
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
+                <Text style={styles.buttonPrimaryText}>Créer un club</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.screenContainer}>
       {/* Club Header */}
       <View style={styles.clubHeader}>
         <View style={styles.clubHeaderContent}>
@@ -155,32 +191,46 @@ export default function HomeScreen({ navigation }) {
         <FlatList
           data={upcomingSessions}
           keyExtractor={(item) => `${item.id}-${item.date}`}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.sessionItem}
-              onPress={() => navigation.navigate('Attendance', { session: item, date: item.date })}
-            >
-              <View style={styles.sessionContent}>
-                <View style={styles.sessionLeft}>
-                  <View style={styles.dateContainer}>
-                    <Text style={styles.calendarIcon}>📅</Text>
-                    <Text style={styles.dateText}>{item.displayDate}</Text>
+          renderItem={({ item }) => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const sessionDate = new Date(item.date + 'T12:00:00');
+            sessionDate.setHours(0, 0, 0, 0);
+            const isToday = today.getTime() === sessionDate.getTime();
+            
+            return (
+              <TouchableOpacity
+                style={[styles.sessionItem, !isToday && styles.sessionItemDisabled]}
+                onPress={() => {
+                  if (isToday) {
+                    const { dateObj, ...sessionWithoutDate } = item;
+                    navigation.navigate('Attendance', { session: sessionWithoutDate, date: item.date });
+                  }
+                }}
+                disabled={!isToday}
+              >
+                <View style={styles.sessionContent}>
+                  <View style={styles.sessionLeft}>
+                    <View style={styles.dateContainer}>
+                      <Text style={[styles.calendarIcon, !isToday && styles.iconDisabled]}>📅</Text>
+                      <Text style={[styles.dateText, !isToday && styles.textDisabled]}>{item.displayDate}</Text>
+                    </View>
+                    <View style={styles.timeContainer}>
+                      <Text style={[styles.clockIcon, !isToday && styles.iconDisabled]}>🕐</Text>
+                      <Text style={[styles.timeText, !isToday && styles.textDisabled]}>
+                        {item.start_time}-{item.end_time}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.timeContainer}>
-                    <Text style={styles.clockIcon}>🕐</Text>
-                    <Text style={styles.timeText}>
-                      {item.start_time}-{item.end_time}
+                  <View style={styles.presentCountContainer}>
+                    <Text style={[styles.presentCountText, !isToday && styles.textDisabled]}>
+                      {item.presentCount || 0} présents
                     </Text>
                   </View>
                 </View>
-                <View style={styles.presentCountContainer}>
-                  <Text style={styles.presentCountText}>
-                    {item.presentCount || 0} présents
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={<Text style={styles.emptyText}>Aucune session à venir</Text>}
         />
 
@@ -190,12 +240,12 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.primary[900] },
+  screenContainer: { flex: 1, backgroundColor: theme.colors.primary[900] },
   clubHeader: {
     backgroundColor: theme.colors.primary[900],
     paddingHorizontal: theme.space[4],
@@ -232,7 +282,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSpacer: {
-    width: theme.space[8],
+    width: theme.space[7],
   },
   switchButton: {
     padding: theme.space[2],
@@ -269,6 +319,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.space[4],
+  },
+  sessionItemDisabled: {
+    opacity: 0.75,
+    backgroundColor: theme.colors.bg,
+    transform: [{ scale: 0.95 }],
+  },
+  textDisabled: {
+    color: theme.colors.text.secondary,
+    opacity: 0.8,
+  },
+  iconDisabled: {
+    opacity: 0.6,
   },
   sessionContent: {
     flexDirection: 'row',

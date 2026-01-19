@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -19,19 +18,56 @@ export default function SessionSelectionScreen({ route, navigation }) {
     // Generate upcoming sessions
     const now = new Date();
     const upcoming = [];
+    const weeksToGenerate = 4; // Generate 4 weeks of sessions
+    
+    // Helper to get day index, handling both French and English
+    const getDayIndex = (dayName: string) => {
+      const frenchDays = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+      const englishDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      let index = frenchDays.indexOf(dayName);
+      if (index === -1) {
+        index = englishDays.indexOf(dayName);
+      }
+      return index;
+    };
+    
     data.forEach(session => {
-      // Find next occurrence
-      const dayIndex = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].indexOf(session.day_of_week);
-      let nextDate = new Date(now);
-      nextDate.setDate(now.getDate() + (dayIndex - now.getDay() + 7) % 7);
-      if (nextDate < now) nextDate.setDate(nextDate.getDate() + 7);
-      upcoming.push({ ...session, date: nextDate.toISOString().split('T')[0] });
+      // Find next occurrences (multiple weeks)
+      const dayIndex = getDayIndex(session.day_of_week);
+      
+      if (dayIndex === -1) {
+        console.warn('Unknown day name:', session.day_of_week);
+        return; // Skip this session
+      }
+      
+      for (let week = 0; week < weeksToGenerate; week++) {
+        const daysUntilNext = (dayIndex - now.getDay() + 7) % 7;
+        let nextDate = new Date(now);
+        nextDate.setDate(now.getDate() + daysUntilNext + (week * 7));
+        
+        // Parse session time and check if it has passed
+        const [hours, minutes] = session.start_time.split(':').map(Number);
+        const sessionTime = new Date(nextDate);
+        sessionTime.setHours(hours, minutes, 0, 0);
+        
+        // Skip if session has already passed
+        if (sessionTime <= now) {
+          continue;
+        }
+        
+        upcoming.push({ ...session, date: nextDate.toISOString().split('T')[0] });
+      }
     });
+    
+    // Sort by date
+    upcoming.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
     setUpcomingSessions(upcoming);
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -47,36 +83,45 @@ export default function SessionSelectionScreen({ route, navigation }) {
         <Text style={styles.sectionTitle}>Sessions disponibles</Text>
         <FlatList
           data={upcomingSessions}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.sessionItem}
-              onPress={() => navigation.navigate('Attendance', { session: item, date: item.date })}
-            >
-              <View style={styles.sessionInfo}>
-                <Text style={styles.sessionDay}>{item.day_of_week}</Text>
-                <Text style={styles.sessionTime}>
-                  {item.start_time} - {item.end_time}
-                </Text>
-                <Text style={styles.sessionDate}>
-                  {new Date(item.date).toLocaleDateString('fr-FR', {
-                    day: 'numeric',
-                    month: 'long'
-                  })}
-                </Text>
-              </View>
-              <Text style={styles.arrowIcon}>→</Text>
-            </TouchableOpacity>
-          )}
+          keyExtractor={(item, index) => `${item.id}-${item.date}-${index}`}
+          renderItem={({ item }) => {
+            const sessionDate = new Date(item.date + 'T12:00:00'); // Add time to avoid timezone issues
+            const dayName = sessionDate.toLocaleDateString('fr-FR', { weekday: 'long' });
+            const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+            
+            return (
+              <TouchableOpacity
+                style={styles.sessionItem}
+                onPress={() => {
+                  const { dateObj, ...sessionWithoutDate } = item;
+                  navigation.navigate('Attendance', { session: sessionWithoutDate, date: item.date });
+                }}
+              >
+                <View style={styles.sessionInfo}>
+                  <Text style={styles.sessionDay}>{capitalizedDay}</Text>
+                  <Text style={styles.sessionTime}>
+                    {item.start_time} - {item.end_time}
+                  </Text>
+                  <Text style={styles.sessionDate}>
+                    {sessionDate.toLocaleDateString('fr-FR', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </Text>
+                </View>
+                <Text style={styles.arrowIcon}>→</Text>
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={<Text style={styles.emptyText}>Aucune session disponible</Text>}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],

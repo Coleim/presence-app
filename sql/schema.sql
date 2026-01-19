@@ -29,7 +29,18 @@ CREATE TABLE participants (
   id SERIAL PRIMARY KEY,
   club_id INTEGER REFERENCES clubs(id) ON DELETE CASCADE,
   first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL
+  last_name TEXT NOT NULL,
+  grade TEXT,
+  level TEXT,
+  notes TEXT
+);
+
+-- Participant Sessions table (many-to-many relationship for preferred sessions)
+CREATE TABLE participant_sessions (
+  id SERIAL PRIMARY KEY,
+  participant_id INTEGER REFERENCES participants(id) ON DELETE CASCADE,
+  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+  UNIQUE(participant_id, session_id)
 );
 
 -- Attendance table
@@ -100,6 +111,27 @@ CREATE POLICY "Users can insert participants for accessible clubs" ON participan
       SELECT 1 FROM club_users
       WHERE club_users.club_id = participants.club_id
       AND club_users.user_id = auth.uid()
+    )
+  );
+
+-- Participant sessions policies
+CREATE POLICY "Users can view participant sessions of accessible clubs" ON participant_sessions
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM club_users cu
+      JOIN participants p ON p.id = participant_sessions.participant_id
+      WHERE cu.club_id = p.club_id
+      AND cu.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can manage participant sessions for accessible clubs" ON participant_sessions
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM club_users cu
+      JOIN participants p ON p.id = participant_sessions.participant_id
+      WHERE cu.club_id = p.club_id
+      AND cu.user_id = auth.uid()
     )
   );
 

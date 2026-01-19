@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -13,20 +12,51 @@ export default function StatsScreen({ route, navigation }) {
   }, []);
 
   const fetchStats = async () => {
-    const participants = await dataService.getParticipants(club.id);
+    const participants = await dataService.getParticipantsWithSessions(club.id);
     const allAttendance = await dataService.getAllAttendance();
+    const sessions = await dataService.getSessions(club.id);
 
     const participantStats = participants.map(p => {
       const pAttendance = allAttendance.filter(a => a.participant_id === p.id);
-      const present = pAttendance.filter(a => a.status === 'present').length;
-      const total = pAttendance.length;
-      return { ...p, present, total, percentage: total > 0 ? (present / total * 100).toFixed(1) : 0 };
+      
+      // Separate attendance into assigned and bonus sessions
+      const assignedSessionIds = p.preferred_session_ids || [];
+      let presentInAssigned = 0;
+      let totalAssigned = 0;
+      let bonusPresences = 0;
+
+      pAttendance.forEach(a => {
+        const isAssignedSession = assignedSessionIds.includes(a.session_id);
+        
+        if (a.status === 'present') {
+          if (isAssignedSession) {
+            presentInAssigned++;
+          } else {
+            bonusPresences++;
+          }
+        }
+      });
+
+      // Count total assigned sessions (all attendance records for assigned sessions)
+      totalAssigned = pAttendance.filter(a => assignedSessionIds.includes(a.session_id)).length;
+
+      // Calculate percentage for assigned sessions only
+      const percentage = totalAssigned > 0 ? (presentInAssigned / totalAssigned * 100).toFixed(1) : 'N/A';
+
+      return { 
+        ...p, 
+        presentInAssigned, 
+        totalAssigned, 
+        bonusPresences,
+        percentage,
+        hasAssignedSessions: assignedSessionIds.length > 0
+      };
     });
     setStats(participantStats);
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -39,38 +69,60 @@ export default function StatsScreen({ route, navigation }) {
       </View>
 
       <View style={styles.container}>
-        <Text style={styles.clubTitle}>{club.name}</Text>
-        <Text style={styles.sectionTitle}>Taux de présence par participant</Text>
+        <View style={styles.contentHeader}>
+          <Text style={styles.clubTitle}>{club.name}</Text>
+          <Text style={styles.sectionTitle}>Taux de présence par participant</Text>
+        </View>
         <FlatList
+          contentContainerStyle={styles.listContent}
           data={stats}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <View style={styles.statItem}>
               <View style={styles.participantInfo}>
                 <Text style={styles.participantName}>
-                  {item.first_name} {item.last_name}
+                  {item.last_name.toUpperCase()} {item.first_name}
                 </Text>
                 {item.grade && <Text style={styles.participantGrade}>{item.grade}</Text>}
               </View>
               <View style={styles.attendanceInfo}>
-                <Text style={styles.attendanceText}>
-                  {item.present}/{item.total} séances
-                </Text>
-                <Text style={styles.percentageText}>
-                  {item.percentage}%
-                </Text>
+                {item.hasAssignedSessions ? (
+                  <>
+                    <Text style={styles.attendanceText}>
+                      {item.presentInAssigned}/{item.totalAssigned} sessions
+                    </Text>
+                    {item.bonusPresences > 0 && (
+                      <Text style={styles.bonusText}>
+                        +{item.bonusPresences} bonus
+                      </Text>
+                    )}
+                    <Text style={styles.percentageText}>
+                      {item.percentage}%
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.attendanceText}>
+                      Aucune session assignée
+                    </Text>
+                    {item.bonusPresences > 0 && (
+                      <Text style={styles.bonusHighlight}>
+                        {item.bonusPresences} présences
+                      </Text>
+                    )}
+                  </>
+                )}
               </View>
             </View>
           )}
           ListEmptyComponent={<Text style={styles.emptyText}>Aucune donnée disponible</Text>}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],
@@ -101,8 +153,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  contentHeader: {
     padding: theme.space[4],
-    paddingBottom: theme.space[6],
+    paddingBottom: theme.space[2],
+  },
+  listContent: {
+    paddingHorizontal: theme.space[4],
   },
   clubTitle: {
     fontSize: theme.typography.fontSize.xl,
@@ -146,6 +203,18 @@ const styles = StyleSheet.create({
   attendanceText: {
     fontSize: theme.typography.fontSize.sm,
     color: theme.colors.text.secondary,
+  },
+  bonusText: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.success,
+    fontWeight: theme.typography.fontWeight.medium,
+    marginTop: theme.space[1],
+  },
+  bonusHighlight: {
+    fontSize: theme.typography.fontSize.lg,
+    fontWeight: theme.typography.fontWeight.semibold,
+    color: theme.colors.success,
+    marginTop: theme.space[1],
   },
   percentageText: {
     fontSize: theme.typography.fontSize.lg,

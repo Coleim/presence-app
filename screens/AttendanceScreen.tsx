@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -15,11 +14,25 @@ export default function AttendanceScreen({ route, navigation }) {
   }, []);
 
   const fetchParticipants = async () => {
-    const data = await dataService.getParticipants(session.club_id);
-    setParticipants(data);
+    const data = await dataService.getParticipantsWithSessions(session.club_id);
+    
+    // Sort participants: 1) Preferred session first, 2) By last name
+    const sortedData = data.sort((a, b) => {
+      const aIsPreferred = a.preferred_session_ids?.includes(session.id) || false;
+      const bIsPreferred = b.preferred_session_ids?.includes(session.id) || false;
+      
+      // First sort by preferred session (preferred first)
+      if (aIsPreferred && !bIsPreferred) return -1;
+      if (!aIsPreferred && bIsPreferred) return 1;
+      
+      // Then sort alphabetically by last name
+      return a.last_name.localeCompare(b.last_name);
+    });
+    
+    setParticipants(sortedData);
     // Initialize attendance as absent
     const init = {};
-    data.forEach(p => init[p.id] = false);
+    sortedData.forEach(p => init[p.id] = false);
     setAttendance(init);
   };
 
@@ -55,10 +68,9 @@ export default function AttendanceScreen({ route, navigation }) {
   const totalCount = participants.length;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        {/* Header Container */}
-        <View style={styles.headerContainer}>
+    <View style={styles.container}>
+      {/* Header Container */}
+      <View style={styles.headerContainer}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
             <Text style={styles.smallBackButtonText}>← Retour</Text>
           </TouchableOpacity>
@@ -80,7 +92,7 @@ export default function AttendanceScreen({ route, navigation }) {
         </View>
 
         {/* Attendance Header with count and uncheck button */}
-        <View style={styles.attendanceHeader}>
+      <View style={styles.attendanceHeader}>
           <Text style={styles.presentCountText}>
             Présents: {presentCount}
           </Text>
@@ -89,46 +101,50 @@ export default function AttendanceScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Attendance List */}
-        <View style={styles.attendanceList}>
+      {/* Attendance List */}
+      <View style={styles.attendanceList}>
           <FlatList
             data={participants}
             keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => toggleAttendance(item.id)}
-                style={[
-                  styles.attendanceItem,
-                  attendance[item.id] && styles.attendanceItemPresent
-                ]}
-              >
-                <View style={[
-                  styles.checkbox,
-                  attendance[item.id] && styles.checkboxChecked
-                ]}>
-                  {attendance[item.id] && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={styles.participantName}>
-                  {item.first_name} {item.last_name}
-                </Text>
-              </TouchableOpacity>
-            )}
+            renderItem={({ item }) => {
+              const isAssignedSession = item.preferred_session_ids?.includes(session.id) || false;
+              return (
+                <TouchableOpacity
+                  onPress={() => toggleAttendance(item.id)}
+                  style={[
+                    styles.attendanceItem,
+                    attendance[item.id] && styles.attendanceItemPresent
+                  ]}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    attendance[item.id] && styles.checkboxChecked
+                  ]}>
+                    {attendance[item.id] && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                  <Text style={styles.participantName}>
+                    {item.last_name.toUpperCase()} {item.first_name}
+                  </Text>
+                  {isAssignedSession && (
+                    <Text style={styles.assignedBadge}>⭐</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            }}
           />
         </View>
 
-        {/* Save Button */}
-        <View style={styles.saveContainer}>
+      {/* Save Button */}
+      <View style={styles.saveContainer}>
           <TouchableOpacity style={styles.buttonPrimary} onPress={saveAttendance}>
             <Text style={styles.buttonPrimaryText}>Enregistrer</Text>
           </TouchableOpacity>
         </View>
-      </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   container: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
@@ -220,6 +236,11 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.medium,
     color: theme.colors.text.primary,
+    marginLeft: theme.space[3],
+  },
+  assignedBadge: {
+    fontSize: 18,
+    marginLeft: theme.space[2],
   },
   saveContainer: { marginTop: theme.space[5], marginBottom: theme.space[5], paddingHorizontal: theme.space[4] },
   buttonPrimary: theme.components.buttonPrimary,

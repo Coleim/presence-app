@@ -62,6 +62,10 @@ export const theme = {
 
   // Component styles
   components: {
+    // Standard content container padding (for ScrollView contentContainerStyle)
+    contentContainer: {
+      padding: 16, // theme.space[4]
+    },
     attendanceList: {
       backgroundColor: '#FFFFFF',
       borderRadius: 12,

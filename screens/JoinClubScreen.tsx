@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -18,7 +17,7 @@ export default function JoinClubScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header with back button */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -28,7 +27,7 @@ export default function JoinClubScreen({ navigation }) {
         <View style={styles.headerSpacer} />
       </View>
 
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.description}>
           Entrez le code et le mot de passe du club que vous souhaitez rejoindre.
         </Text>
@@ -56,13 +55,12 @@ export default function JoinClubScreen({ navigation }) {
         <TouchableOpacity style={styles.buttonPrimary} onPress={joinClub}>
           <Text style={styles.buttonPrimaryText}>Rejoindre le club</Text>
         </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -86,11 +84,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   headerSpacer: {
-    width: theme.space[8], // Same width as back button for centering
+    width: theme.space[7], // Same width as back button for centering
   },
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  contentContainer: {
     padding: theme.space[4],
   },
   description: {

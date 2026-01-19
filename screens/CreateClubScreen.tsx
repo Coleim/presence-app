@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -26,7 +25,7 @@ export default function CreateClubScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
@@ -38,7 +37,7 @@ export default function CreateClubScreen({ navigation }) {
         </View>
       </View>
 
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.label}>Nom du club</Text>
         <TextInput
           placeholder="Entrez le nom du club"
@@ -62,13 +61,12 @@ export default function CreateClubScreen({ navigation }) {
         <TouchableOpacity style={styles.buttonPrimary} onPress={createClub}>
           <Text style={styles.buttonPrimaryText}>Créer le club</Text>
         </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.bg },
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],
@@ -99,6 +97,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  contentContainer: {
     padding: theme.space[4],
   },
   label: {

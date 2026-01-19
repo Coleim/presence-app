@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 const CLUBS_KEY = 'clubs';
 const SESSIONS_KEY = 'sessions';
 const PARTICIPANTS_KEY = 'participants';
+const PARTICIPANT_SESSIONS_KEY = 'participant_sessions';
 const ATTENDANCE_KEY = 'attendance';
 const USER_KEY = 'user';
 
@@ -30,6 +31,13 @@ export interface Participant {
   grade?: string;
   level?: string;
   notes?: string;
+  preferred_session_ids?: string[]; // Array of session IDs this participant is assigned to
+}
+
+export interface ParticipantSession {
+  id: string;
+  participant_id: string;
+  session_id: string;
 }
 
 export interface AttendanceRecord {
@@ -195,6 +203,27 @@ class DataService {
     return session;
   }
 
+  deleteSession = async (id: string): Promise<void> => {
+    const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
+    if (allSessions) {
+      const sessions = JSON.parse(allSessions).filter(s => s.id !== id);
+      await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    }
+    if (this.isOnline) {
+      try {
+        await supabase.from('sessions').delete().eq('id', id);
+      } catch (e) {
+        console.log('Delete sync later');
+      }
+    }
+    // Delete related attendance records
+    const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
+    if (allAttendance) {
+      const attendance = JSON.parse(allAttendance).filter(a => a.session_id !== id);
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(attendance));
+    }
+  }
+
   getParticipants = async (clubId: string): Promise<Participant[]> => {
     const local = await AsyncStorage.getItem(PARTICIPANTS_KEY);
     let participants = local ? JSON.parse(local).filter(p => p.club_id === clubId) : [];
@@ -241,6 +270,27 @@ class DataService {
       }
     }
     return participant;
+  }
+
+  deleteParticipant = async (id: string): Promise<void> => {
+    const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
+    if (allParticipants) {
+      const participants = JSON.parse(allParticipants).filter(p => p.id !== id);
+      await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
+    }
+    if (this.isOnline) {
+      try {
+        await supabase.from('participants').delete().eq('id', id);
+      } catch (e) {
+        console.log('Delete sync later');
+      }
+    }
+    // Delete related attendance records
+    const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
+    if (allAttendance) {
+      const attendance = JSON.parse(allAttendance).filter(a => a.participant_id !== id);
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(attendance));
+    }
   }
 
   getAttendance = async (sessionId: string, date: string): Promise<AttendanceRecord[]> => {
@@ -314,6 +364,82 @@ class DataService {
 
   setUser = async (user: User): Promise<void> => {
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+
+  // Participant Sessions (Preferred Sessions) methods
+  
+  getParticipantSessions = async (participantId: string): Promise<string[]> => {
+    const local = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
+    let participantSessions = local ? JSON.parse(local).filter(ps => ps.participant_id === participantId) : [];
+    
+    if (this.isOnline) {
+      try {
+        const { data } = await supabase.from('participant_sessions').select('*').eq('participant_id', participantId);
+        if (data) {
+          participantSessions = data;
+          const allPS = local ? JSON.parse(local) : [];
+          data.forEach(ps => {
+            const index = allPS.findIndex(aps => aps.id === ps.id);
+            if (index >= 0) allPS[index] = ps;
+            else allPS.push(ps);
+          });
+          await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(allPS));
+        }
+      } catch (e) {
+        console.log('Offline mode for participant sessions');
+      }
+    }
+    
+    return participantSessions.map(ps => ps.session_id);
+  }
+
+  saveParticipantSessions = async (participantId: string, sessionIds: string[]): Promise<void> => {
+    // Remove all existing relationships for this participant
+    const local = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
+    let allPS = local ? JSON.parse(local) : [];
+    allPS = allPS.filter(ps => ps.participant_id !== participantId);
+    
+    // Add new relationships
+    sessionIds.forEach(sessionId => {
+      const newPS: ParticipantSession = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        participant_id: participantId,
+        session_id: sessionId
+      };
+      allPS.push(newPS);
+    });
+    
+    await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(allPS));
+    
+    if (this.isOnline) {
+      try {
+        // Delete existing relationships
+        await supabase.from('participant_sessions').delete().eq('participant_id', participantId);
+        
+        // Insert new relationships
+        if (sessionIds.length > 0) {
+          const records = sessionIds.map(sessionId => ({
+            participant_id: participantId,
+            session_id: sessionId
+          }));
+          await supabase.from('participant_sessions').insert(records);
+        }
+      } catch (e) {
+        console.log('Save locally, sync later');
+      }
+    }
+  }
+
+  // Get participants with their preferred sessions loaded
+  getParticipantsWithSessions = async (clubId: string): Promise<Participant[]> => {
+    const participants = await this.getParticipants(clubId);
+    
+    // Load preferred sessions for each participant
+    for (const participant of participants) {
+      participant.preferred_session_ids = await this.getParticipantSessions(participant.id);
+    }
+    
+    return participants;
   }
 }
 
