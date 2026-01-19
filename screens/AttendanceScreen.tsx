@@ -13,9 +13,7 @@ export default function AttendanceScreen({ route, navigation }: any) {
     loadData();
   }, []);
 
-  const loadData = async () => {
-    console.log('[DEBUG AttendanceScreen] Loading session date:', date);
-    
+  const loadData = async () => {    
     // Load participants first
     const data = await dataService.getParticipantsWithSessions(session.club_id);
     
@@ -39,7 +37,6 @@ export default function AttendanceScreen({ route, navigation }: any) {
     sortedData.forEach(p => init[p.id] = false);
     
     // Load existing attendance and merge with init
-    console.log('[DEBUG AttendanceScreen] Loading existing attendance');
     const existingData = await dataService.getAttendance(session.id, date);
     existingData.forEach(a => {
       init[a.participant_id] = a.status === 'present';
@@ -100,9 +97,9 @@ export default function AttendanceScreen({ route, navigation }: any) {
       
       if (result.action === Share.sharedAction) {
         if (result.activityType) {
-          console.log('Shared with activity type:', result.activityType);
+          console.info('Shared with activity type:', result.activityType);
         } else {
-          console.log('Shared successfully');
+          console.info('Shared successfully');
         }
       }
     } catch (error: any) {

@@ -21,10 +21,7 @@ export default function HomeScreen({ navigation }: any) {
   }, [navigation]);
 
   const fetchData = async () => {
-    console.log('HomeScreen: fetchData called');
     const clubsData = await dataService.getClubs();
-    console.log('HomeScreen: clubs loaded:', clubsData.length);
-    console.log('[DEBUG fetchData] Clubs with reset dates:', clubsData.map(c => ({ name: c.name, reset_date: c.stats_reset_date })));
     setClubs(clubsData);
 
     if (clubsData.length === 0) {
@@ -53,9 +50,7 @@ export default function HomeScreen({ navigation }: any) {
   };
 
   const fetchSessionsForClub = async (club: any) => {
-    console.log('HomeScreen: fetchSessionsForClub called for club:', club.name);
     const sessions = await dataService.getSessions(club.id);
-    console.log('HomeScreen: sessions loaded:', sessions.length);
     const now = new Date();
     const upcoming = [];
     const weeksToGenerate = 4; // Generate 4 weeks of sessions
@@ -73,10 +68,7 @@ export default function HomeScreen({ navigation }: any) {
     };
 
     for (const session of sessions) {
-      console.log('HomeScreen: processing session:', session.day_of_week, session.start_time);
-      const dayIndex = getDayIndex(session.day_of_week);
-      console.log('HomeScreen: dayIndex for', session.day_of_week, 'is', dayIndex);
-      
+      const dayIndex = getDayIndex(session.day_of_week);      
       if (dayIndex === -1) {
         console.warn('Unknown day name:', session.day_of_week);
         continue; // Skip this session if day is not recognized
@@ -102,7 +94,7 @@ export default function HomeScreen({ navigation }: any) {
         
         // Skip if this session's expiration window has passed
         if (expirationTime <= now) {
-          console.log(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')})`);
+          console.info(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')})`);
           continue;
         }
         
@@ -143,16 +135,13 @@ export default function HomeScreen({ navigation }: any) {
       return a.start_time.localeCompare(b.start_time);
     });
 
-    console.log('HomeScreen: upcoming sessions found:', upcoming.length);
     setUpcomingSessions(upcoming.slice(0, 10)); // Show next 10
   };
 
   const getPresentCount = async (session: any, date: any) => {
     try {
-      console.log('[DEBUG getPresentCount] Session:', session.day_of_week, 'Date:', date);
       const attendance = await dataService.getAttendance(session.id, date);
       const presentCount = attendance.filter(a => a.status === 'present').length;
-      console.log('[DEBUG getPresentCount] Present count:', presentCount);
       return presentCount;
     } catch (error) {
       console.error('Error getting present count:', error);
@@ -240,15 +229,6 @@ export default function HomeScreen({ navigation }: any) {
             const expirationTime = new Date(sessionEnd.getTime() + 3 * 60 * 60 * 1000); // 3h after
             
             const isActive = now >= activationTime && now <= expirationTime;
-            
-            console.log(`[DEBUG Session] ${item.day_of_week} ${item.start_time}-${item.end_time}`);
-            console.log(`  Date: ${item.date}`);
-            console.log(`  Now: ${now.toLocaleString('fr-FR')}`);
-            console.log(`  Session start: ${sessionStart.toLocaleString('fr-FR')}`);
-            console.log(`  Session end: ${sessionEnd.toLocaleString('fr-FR')}`);
-            console.log(`  Activation time (2h before): ${activationTime.toLocaleString('fr-FR')}`);
-            console.log(`  Expiration time (3h after): ${expirationTime.toLocaleString('fr-FR')}`);
-            console.log(`  Is active: ${isActive}`);
             
             return (
               <TouchableOpacity

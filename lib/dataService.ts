@@ -83,7 +83,7 @@ class DataService {
           await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
         }
       } catch (e) {
-        console.log('Offline mode for clubs');
+        console.error('Offline mode for clubs');
       }
     }
     return clubs;
@@ -95,30 +95,26 @@ class DataService {
   }
   resetClubStats = async (clubId: string): Promise<void> => {
     const resetDate = new Date().toISOString().split('T')[0];
-    console.log('[DEBUG resetClubStats] Reset date:', resetDate);
     
     // Update club with reset date
     const clubs = await this.getClubs();
     const updatedClubs = clubs.map(c => {
       if (c.id === clubId) {
-        console.log('[DEBUG resetClubStats] Updating club:', c.name, 'with reset date:', resetDate);
         return { ...c, stats_reset_date: resetDate };
       }
       return c;
     });
     await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(updatedClubs));
-    console.log('[DEBUG resetClubStats] Saved to AsyncStorage');
     
     // Delete ALL attendance records from local storage
     await AsyncStorage.removeItem(ATTENDANCE_KEY);
-    console.log('[DEBUG resetClubStats] Deleted all attendance records from local storage');
     
     if (this.isOnline) {
       try {
         const club = updatedClubs.find(c => c.id === clubId);
         await supabase.from('clubs').update({ stats_reset_date: club?.stats_reset_date }).eq('id', clubId);
       } catch (e) {
-        console.log('Reset stats locally, sync later');
+        console.info('Reset stats locally, sync later');
       }
     }
   }
@@ -130,7 +126,7 @@ class DataService {
       try {
         await supabase.from('clubs').delete().eq('id', id);
       } catch (e) {
-        console.log('Delete sync later');
+        console.info('Delete sync later');
       }
     }
     // Also delete related data locally
@@ -177,7 +173,7 @@ class DataService {
           await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
         }
       } catch (e) {
-        console.log('Save locally, sync later');
+        console.info('Save locally, sync later');
       }
     }
     return club;
@@ -201,7 +197,7 @@ class DataService {
           await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(allSessions));
         }
       } catch (e) {
-        console.log('Offline mode for sessions');
+        console.info('Offline mode for sessions');
       }
     }
     return sessions;
@@ -226,7 +222,7 @@ class DataService {
           await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
         }
       } catch (e) {
-        console.log('Save locally');
+        console.info('Save locally');
       }
     }
     return session;
@@ -242,7 +238,7 @@ class DataService {
       try {
         await supabase.from('sessions').delete().eq('id', id);
       } catch (e) {
-        console.log('Delete sync later');
+        console.info('Delete sync later');
       }
     }
     // Delete related attendance records
@@ -270,7 +266,7 @@ class DataService {
           await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(allParticipants));
         }
       } catch (e) {
-        console.log('Offline mode for participants');
+        console.loinfog('Offline mode for participants');
       }
     }
     return participants;
@@ -295,7 +291,7 @@ class DataService {
           await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
         }
       } catch (e) {
-        console.log('Save locally');
+        console.info('Save locally');
       }
     }
     return participant;
@@ -311,7 +307,7 @@ class DataService {
       try {
         await supabase.from('participants').delete().eq('id', id);
       } catch (e) {
-        console.log('Delete sync later');
+        console.info('Delete sync later');
       }
     }
     // Delete related attendance records
@@ -339,7 +335,7 @@ class DataService {
           await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(allAttendance));
         }
       } catch (e) {
-        console.log('Offline mode for attendance');
+        console.info('Offline mode for attendance');
       }
     }
     return attendance;
@@ -348,7 +344,6 @@ class DataService {
   getAllAttendance = async (): Promise<AttendanceRecord[]> => {
     const local = await AsyncStorage.getItem(ATTENDANCE_KEY);
     const allAttendance = local ? JSON.parse(local) : [];
-    console.log('[DEBUG getAllAttendance] Total attendance records:', allAttendance.length);
     return allAttendance;
   }
 
@@ -374,10 +369,10 @@ class DataService {
         // Upsert each record
         for (const record of records) {
           const { error } = await supabase.from('attendance').upsert(record);
-          if (error) console.log('Sync error:', error);
+          if (error) console.error('Sync error:', error);
         }
       } catch (e) {
-        console.log('Save locally, sync later');
+        console.info('Save locally, sync later');
       }
     }
   }
@@ -417,7 +412,7 @@ class DataService {
           await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(allPS));
         }
       } catch (e) {
-        console.log('Offline mode for participant sessions');
+        console.info('Offline mode for participant sessions');
       }
     }
     
@@ -456,7 +451,7 @@ class DataService {
           await supabase.from('participant_sessions').insert(records);
         }
       } catch (e) {
-        console.log('Save locally, sync later');
+        console.info('Save locally, sync later');
       }
     }
   }

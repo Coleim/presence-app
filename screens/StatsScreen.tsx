@@ -13,10 +13,8 @@ export default function StatsScreen({ route, navigation }: any) {
   }, []);
 
   const fetchStats = async () => {
-    console.log('[DEBUG fetchStats] Club:', club.name);
     const participants = await dataService.getParticipantsWithSessions(club.id);
     const allAttendance = await dataService.getAllAttendance();
-    console.log('[DEBUG fetchStats] Attendance records:', allAttendance.length);
     const sessions = await dataService.getSessions(club.id);
 
     const participantStats = participants
@@ -122,7 +120,7 @@ export default function StatsScreen({ route, navigation }: any) {
       });
       
       if (result.action === Share.sharedAction) {
-        console.log('Stats shared successfully');
+        console.info('Stats shared successfully');
       }
     } catch (error: any) {
       Alert.alert('Erreur', 'Impossible de partager les statistiques.');

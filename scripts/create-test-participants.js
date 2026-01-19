@@ -32,9 +32,7 @@ const testParticipants = [
 ];
 
 // Pour React Native / Expo
-async function createTestParticipants(clubId, dataService) {
-  console.log('Création de 20 participants de test...');
-  
+async function createTestParticipants(clubId, dataService) {  
   for (let i = 0; i < testParticipants.length; i++) {
     const participant = {
       club_id: clubId,
@@ -47,13 +45,10 @@ async function createTestParticipants(clubId, dataService) {
     
     try {
       await dataService.saveParticipant(participant);
-      console.log(`✓ ${i + 1}/20 - ${participant.first_name} ${participant.last_name}`);
     } catch (error) {
       console.error(`✗ Erreur pour ${participant.first_name} ${participant.last_name}:`, error);
     }
   }
-  
-  console.log('✅ Tous les participants de test ont été créés !');
 }
 
 // Export pour usage
