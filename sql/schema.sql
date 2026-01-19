@@ -12,6 +12,7 @@ CREATE TABLE clubs (
   academic_year_end DATE,
   code TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
+  stats_reset_date DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

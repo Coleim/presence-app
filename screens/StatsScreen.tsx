@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Share, Alert } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
-export default function StatsScreen({ route, navigation }) {
+export default function StatsScreen({ route, navigation }: any) {
   const { club } = route.params;
-  const [stats, setStats] = useState([]);
+  const [stats, setStats] = useState<any[]>([]);
 
   useEffect(() => {
     fetchStats();
   }, []);
 
   const fetchStats = async () => {
+    console.log('[DEBUG fetchStats] Club:', club.name);
     const participants = await dataService.getParticipantsWithSessions(club.id);
     const allAttendance = await dataService.getAllAttendance();
+    console.log('[DEBUG fetchStats] Attendance records:', allAttendance.length);
     const sessions = await dataService.getSessions(club.id);
 
     const participantStats = participants.map(p => {
@@ -40,19 +43,88 @@ export default function StatsScreen({ route, navigation }) {
       // Count total assigned sessions (all attendance records for assigned sessions)
       totalAssigned = pAttendance.filter(a => assignedSessionIds.includes(a.session_id)).length;
 
-      // Calculate percentage for assigned sessions only
-      const percentage = totalAssigned > 0 ? (presentInAssigned / totalAssigned * 100).toFixed(1) : 'N/A';
+      // Bonus presences can compensate for missed assigned sessions
+      const bonusUsed = Math.min(bonusPresences, totalAssigned - presentInAssigned);
+      const effectivePresent = presentInAssigned + bonusUsed;
+      const bonusRemaining = bonusPresences - bonusUsed;
+
+      // Calculate percentage with bonus compensation
+      const percentage = totalAssigned > 0 ? (effectivePresent / totalAssigned * 100).toFixed(1) : 'N/A';
 
       return { 
         ...p, 
         presentInAssigned, 
         totalAssigned, 
         bonusPresences,
+        bonusUsed,
+        bonusRemaining,
+        effectivePresent,
         percentage,
         hasAssignedSessions: assignedSessionIds.length > 0
       };
     });
+    
+    // Sort by percentage (highest first)
+    participantStats.sort((a, b) => {
+      const percentA = a.percentage === 'N/A' ? -1 : parseFloat(a.percentage);
+      const percentB = b.percentage === 'N/A' ? -1 : parseFloat(b.percentage);
+      return percentB - percentA;
+    });
+    
     setStats(participantStats);
+  };
+
+  const shareStats = async () => {
+    try {
+      let message = `Statistiques de présence\n${club.name}\n\n`;
+      
+      if (club.stats_reset_date) {
+        const resetDate = new Date(club.stats_reset_date).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+        message += `Période: depuis le ${resetDate}\n\n`;
+      }
+      
+      message += `🏆 Classement\n`;
+      message += `${'='.repeat(12)}\n\n`;
+      
+      stats.forEach((participant, index) => {
+        const position = index + 1;
+        const medal = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : `${position}.`;
+        
+        message += `${medal} ${participant.first_name} ${participant.last_name.toUpperCase()}\n`;
+        
+        if (participant.hasAssignedSessions) {
+          message += `   • Taux: ${participant.percentage}%\n`;
+          message += `   • Présences: ${participant.effectivePresent}/${participant.totalAssigned} sessions\n`;
+          
+          if (participant.bonusUsed > 0) {
+            message += `   • Bonus utilisés: ${participant.bonusUsed}\n`;
+          }
+          if (participant.bonusRemaining > 0) {
+            message += `   • Bonus restants: ${participant.bonusRemaining}\n`;
+          }
+        } else {
+          message += `   • Aucune session assignée\n`;
+          if (participant.bonusPresences > 0) {
+            message += `   • Présences bonus: ${participant.bonusPresences}\n`;
+          }
+        }
+        message += `\n`;
+      });
+      
+      const result = await Share.share({
+        message: message,
+      });
+      
+      if (result.action === Share.sharedAction) {
+        console.log('Stats shared successfully');
+      }
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Impossible de partager les statistiques.');
+    }
   };
 
   return (
@@ -66,6 +138,9 @@ export default function StatsScreen({ route, navigation }) {
         <View style={styles.mainHeader}>
           <Text style={styles.headerTitle}>Statistiques</Text>
         </View>
+        <TouchableOpacity onPress={shareStats} style={styles.shareButton}>
+          <Feather name="share-2" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.container}>
@@ -89,11 +164,16 @@ export default function StatsScreen({ route, navigation }) {
                 {item.hasAssignedSessions ? (
                   <>
                     <Text style={styles.attendanceText}>
-                      {item.presentInAssigned}/{item.totalAssigned} sessions
+                      {item.effectivePresent}/{item.totalAssigned} sessions
                     </Text>
-                    {item.bonusPresences > 0 && (
+                    {item.bonusUsed > 0 && (
+                      <Text style={styles.bonusUsedText}>
+                        ({item.presentInAssigned} + {item.bonusUsed} bonus)
+                      </Text>
+                    )}
+                    {item.bonusRemaining > 0 && (
                       <Text style={styles.bonusText}>
-                        +{item.bonusPresences} bonus
+                        +{item.bonusRemaining} bonus restant{item.bonusRemaining > 1 ? 's' : ''}
                       </Text>
                     )}
                     <Text style={styles.percentageText}>
@@ -140,6 +220,12 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSize.sm,
     color: '#FFFFFF',
     fontWeight: theme.typography.fontWeight.medium,
+  },
+  shareButton: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    padding: theme.space[2],
   },
   mainHeader: {
     alignItems: 'center',
@@ -208,6 +294,12 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.fontSize.sm,
     color: theme.colors.success,
     fontWeight: theme.typography.fontWeight.medium,
+    marginTop: theme.space[1],
+  },
+  bonusUsedText: {
+    fontSize: theme.typography.fontSize.xs,
+    color: theme.colors.text.secondary,
+    fontStyle: 'italic',
     marginTop: theme.space[1],
   },
   bonusHighlight: {

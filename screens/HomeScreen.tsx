@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
-export default function HomeScreen({ navigation }) {
-  const [clubs, setClubs] = useState([]);
-  const [selectedClub, setSelectedClub] = useState(null);
-  const [upcomingSessions, setUpcomingSessions] = useState([]);
+export default function HomeScreen({ navigation }: any) {
+  const [clubs, setClubs] = useState<any[]>([]);
+  const [selectedClub, setSelectedClub] = useState<any>(null);
+  const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -23,6 +24,7 @@ export default function HomeScreen({ navigation }) {
     console.log('HomeScreen: fetchData called');
     const clubsData = await dataService.getClubs();
     console.log('HomeScreen: clubs loaded:', clubsData.length);
+    console.log('[DEBUG fetchData] Clubs with reset dates:', clubsData.map(c => ({ name: c.name, reset_date: c.stats_reset_date })));
     setClubs(clubsData);
 
     if (clubsData.length === 0) {
@@ -32,17 +34,25 @@ export default function HomeScreen({ navigation }) {
     }
 
     // If no club selected or selected club doesn't exist, select first one
+    // If club exists, refresh it with latest data (including stats_reset_date)
     let clubToUse = selectedClub;
     if (!selectedClub || !clubsData.find(c => c.id === selectedClub.id)) {
       clubToUse = clubsData[0];
       setSelectedClub(clubsData[0]);
+    } else {
+      // Refresh selected club with latest data
+      const refreshedClub = clubsData.find(c => c.id === selectedClub.id);
+      if (refreshedClub) {
+        clubToUse = refreshedClub;
+        setSelectedClub(refreshedClub);
+      }
     }
 
     // Fetch sessions for selected club
     await fetchSessionsForClub(clubToUse);
   };
 
-  const fetchSessionsForClub = async (club) => {
+  const fetchSessionsForClub = async (club: any) => {
     console.log('HomeScreen: fetchSessionsForClub called for club:', club.name);
     const sessions = await dataService.getSessions(club.id);
     console.log('HomeScreen: sessions loaded:', sessions.length);
@@ -84,8 +94,15 @@ export default function HomeScreen({ navigation }) {
         const sessionTime = new Date(nextDate);
         sessionTime.setHours(hours, minutes, 0, 0);
         
-        // Skip if this session has already passed
-        if (sessionTime <= now) {
+        // Parse end time to check expiration window
+        const [endHours, endMinutes] = session.end_time.split(':').map(Number);
+        const sessionEnd = new Date(nextDate);
+        sessionEnd.setHours(endHours, endMinutes, 0, 0);
+        const expirationTime = new Date(sessionEnd.getTime() + 3 * 60 * 60 * 1000); // 3h after end
+        
+        // Skip if this session's expiration window has passed
+        if (expirationTime <= now) {
+          console.log(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')})`);
           continue;
         }
         
@@ -115,7 +132,8 @@ export default function HomeScreen({ navigation }) {
         }
         
         const presentCount = await getPresentCount(session, nextDate.toISOString().split('T')[0]);
-        upcoming.push({ ...session, club, date: nextDate.toISOString().split('T')[0], displayDate, dateObj: nextDate, presentCount });
+        const assignedCount = await getAssignedCount(session);
+        upcoming.push({ ...session, club, date: nextDate.toISOString().split('T')[0], displayDate, dateObj: nextDate, presentCount, assignedCount });
       }
     }
 
@@ -129,12 +147,25 @@ export default function HomeScreen({ navigation }) {
     setUpcomingSessions(upcoming.slice(0, 10)); // Show next 10
   };
 
-  const getPresentCount = async (session, date) => {
+  const getPresentCount = async (session: any, date: any) => {
     try {
+      console.log('[DEBUG getPresentCount] Session:', session.day_of_week, 'Date:', date);
       const attendance = await dataService.getAttendance(session.id, date);
-      return attendance.filter(a => a.status === 'present').length;
+      const presentCount = attendance.filter(a => a.status === 'present').length;
+      console.log('[DEBUG getPresentCount] Present count:', presentCount);
+      return presentCount;
     } catch (error) {
       console.error('Error getting present count:', error);
+      return 0;
+    }
+  };
+
+  const getAssignedCount = async (session: any) => {
+    try {
+      const participants = await dataService.getParticipantsWithSessions(session.club_id);
+      return participants.filter(p => p.preferred_session_ids?.includes(session.id)).length;
+    } catch (error) {
+      console.error('Error getting assigned count:', error);
       return 0;
     }
   };
@@ -172,11 +203,11 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.clubHeaderContent}>
           <View style={styles.logoContainer}>
             <View style={styles.clubLogo}>
-              <Text style={styles.clubLogoText}>🏆</Text>
+              <Feather name="users" size={40} color="#FFFFFF" />
             </View>
             {clubs.length > 1 && (
               <TouchableOpacity onPress={switchClub} style={styles.switchButton}>
-                <Text style={styles.switchText}>🔄</Text>
+                <Feather name="refresh-cw" size={24} color="#FFFFFF" />
               </TouchableOpacity>
             )}
           </View>
@@ -192,39 +223,63 @@ export default function HomeScreen({ navigation }) {
           data={upcomingSessions}
           keyExtractor={(item) => `${item.id}-${item.date}`}
           renderItem={({ item }) => {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const sessionDate = new Date(item.date + 'T12:00:00');
-            sessionDate.setHours(0, 0, 0, 0);
-            const isToday = today.getTime() === sessionDate.getTime();
+            const now = new Date();
+            
+            // Parse session date and time
+            const [startHours, startMinutes] = item.start_time.split(':').map(Number);
+            const [endHours, endMinutes] = item.end_time.split(':').map(Number);
+            
+            const sessionStart = new Date(item.date + 'T00:00:00');
+            sessionStart.setHours(startHours, startMinutes, 0, 0);
+            
+            const sessionEnd = new Date(item.date + 'T00:00:00');
+            sessionEnd.setHours(endHours, endMinutes, 0, 0);
+            
+            // Session is active 2h before start and up to 3h after end
+            const activationTime = new Date(sessionStart.getTime() - 2 * 60 * 60 * 1000); // 2h before
+            const expirationTime = new Date(sessionEnd.getTime() + 3 * 60 * 60 * 1000); // 3h after
+            
+            const isActive = now >= activationTime && now <= expirationTime;
+            
+            console.log(`[DEBUG Session] ${item.day_of_week} ${item.start_time}-${item.end_time}`);
+            console.log(`  Date: ${item.date}`);
+            console.log(`  Now: ${now.toLocaleString('fr-FR')}`);
+            console.log(`  Session start: ${sessionStart.toLocaleString('fr-FR')}`);
+            console.log(`  Session end: ${sessionEnd.toLocaleString('fr-FR')}`);
+            console.log(`  Activation time (2h before): ${activationTime.toLocaleString('fr-FR')}`);
+            console.log(`  Expiration time (3h after): ${expirationTime.toLocaleString('fr-FR')}`);
+            console.log(`  Is active: ${isActive}`);
             
             return (
               <TouchableOpacity
-                style={[styles.sessionItem, !isToday && styles.sessionItemDisabled]}
+                style={[styles.sessionItem, !isActive && styles.sessionItemDisabled]}
                 onPress={() => {
-                  if (isToday) {
+                  if (isActive) {
                     const { dateObj, ...sessionWithoutDate } = item;
-                    navigation.navigate('Attendance', { session: sessionWithoutDate, date: item.date });
+                    navigation.navigate('Attendance', { 
+                      session: sessionWithoutDate, 
+                      date: item.date
+                    });
                   }
                 }}
-                disabled={!isToday}
+                disabled={!isActive}
               >
                 <View style={styles.sessionContent}>
                   <View style={styles.sessionLeft}>
                     <View style={styles.dateContainer}>
-                      <Text style={[styles.calendarIcon, !isToday && styles.iconDisabled]}>📅</Text>
-                      <Text style={[styles.dateText, !isToday && styles.textDisabled]}>{item.displayDate}</Text>
+                      <Feather name="calendar" size={20} color={isActive ? theme.colors.text.primary : theme.colors.text.secondary} style={[!isActive && styles.iconDisabled]} />
+                      <Text style={[styles.dateText, !isActive && styles.textDisabled]}>{item.displayDate}</Text>
                     </View>
                     <View style={styles.timeContainer}>
-                      <Text style={[styles.clockIcon, !isToday && styles.iconDisabled]}>🕐</Text>
-                      <Text style={[styles.timeText, !isToday && styles.textDisabled]}>
+                      <Feather name="clock" size={20} color={isActive ? theme.colors.text.secondary : theme.colors.text.secondary} style={[!isActive && styles.iconDisabled]} />
+                      <Text style={[styles.timeText, !isActive && styles.textDisabled]}>
                         {item.start_time}-{item.end_time}
                       </Text>
                     </View>
                   </View>
                   <View style={styles.presentCountContainer}>
-                    <Text style={[styles.presentCountText, !isToday && styles.textDisabled]}>
-                      {item.presentCount || 0} présents
+                    <Text style={[styles.presentCountText, !isActive && styles.textDisabled]}>
+                      {item.presentCount || 0} / {item.assignedCount || 0}
                     </Text>
                   </View>
                 </View>
@@ -235,8 +290,8 @@ export default function HomeScreen({ navigation }) {
         />
 
         <View style={styles.manageButtonContainer}>
-          <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.navigate('ClubList')}>
-            <Text style={styles.buttonSecondaryText}>Gérer les clubs</Text>
+          <TouchableOpacity style={styles.manageClubButton} onPress={() => navigation.navigate('ClubList')}>
+            <Text style={styles.manageClubButtonText}>Gérer le club</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -272,9 +327,6 @@ const styles = StyleSheet.create({
     right: 0,
     padding: theme.space[2],
   },
-  clubLogoText: {
-    fontSize: theme.typography.fontSize.xl * 1.5,
-  },
   clubName: {
     fontSize: theme.typography.fontSize.xl * 1.2,
     fontWeight: theme.typography.fontWeight.semibold,
@@ -283,12 +335,6 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: theme.space[7],
-  },
-  switchButton: {
-    padding: theme.space[2],
-  },
-  switchText: {
-    fontSize: theme.typography.fontSize.lg,
   },
   container: {
     flex: 1,
@@ -345,10 +391,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: theme.space[2],
-  },
-  calendarIcon: {
-    fontSize: theme.typography.fontSize.lg,
-    marginRight: theme.space[2],
+    gap: theme.space[2],
   },
   dateText: {
     fontSize: theme.typography.fontSize.md,
@@ -359,10 +402,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: theme.space[2],
-  },
-  clockIcon: {
-    fontSize: theme.typography.fontSize.lg,
-    marginRight: theme.space[2],
+    gap: theme.space[2],
   },
   timeText: {
     fontSize: theme.typography.fontSize.md,
@@ -408,5 +448,18 @@ const styles = StyleSheet.create({
   buttonSecondaryText: {
     color: theme.colors.text.secondary,
     fontSize: theme.typography.fontSize.md,
+  },
+  manageClubButton: {
+    borderWidth: 1,
+    borderColor: theme.colors.primary[700],
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.space[3],
+    paddingHorizontal: theme.space[4],
+    alignItems: 'center',
+  },
+  manageClubButtonText: {
+    color: theme.colors.primary[700],
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
   },
 });

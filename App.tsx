@@ -13,6 +13,7 @@ import AddParticipantScreen from './screens/AddParticipantScreen';
 import SessionSelectionScreen from './screens/SessionSelectionScreen';
 import AttendanceScreen from './screens/AttendanceScreen';
 import StatsScreen from './screens/StatsScreen';
+import TestUtilsScreen from './screens/TestUtilsScreen';
 
 type RootStackParamList = {
   Auth: undefined;
@@ -25,6 +26,7 @@ type RootStackParamList = {
   SessionSelection: { club: any };
   Attendance: { session: any; date: string };
   Stats: { club: any };
+  TestUtils: { clubId: string };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -45,6 +47,7 @@ function AppNavigator() {
         <Stack.Screen name="SessionSelection" component={SessionSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Attendance" component={AttendanceScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Stats" component={StatsScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="TestUtils" component={TestUtilsScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

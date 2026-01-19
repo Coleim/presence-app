@@ -33,3 +33,24 @@ When Supabase is configured:
 - Data is synced on app start and when saving
 - Conflicts are resolved with last-write-wins
 - Attendance and other data syncs seamlessly
+
+## Test Utilities
+
+Pour tester l'application avec des données fictives :
+
+1. Ouvrir un club dans l'app
+2. Cliquer sur "🧪 Utilitaires de test"
+3. **Créer 20 participants de test** : Ajoute 20 participants avec des noms français
+4. **Supprimer les participants de test** : Supprime tous les participants marqués "TEST - À SUPPRIMER"
+
+Les participants de test incluent :
+- Antoine BERNARD, Sophie MARTIN, Lucas DUBOIS, Emma THOMAS, Hugo ROBERT
+- Léa PETIT, Tom DURAND, Chloé LEROY, Mathis MOREAU, Sarah SIMON
+- Nathan LAURENT, Manon LEFEBVRE, Enzo MICHEL, Camille GARCIA, Maxime DAVID
+- Inès BERTRAND, Arthur ROUX, Jade VINCENT, Paul FOURNIER, Zoé MOREL
+
+Pratique pour tester :
+- Le tri par sessions préférées (⭐)
+- Les statistiques de présence
+- Le scroll dans les longues listes
+- La suppression en masse

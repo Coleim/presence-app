@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
@@ -98,7 +99,7 @@ export default function AddParticipantScreen({ route, navigation }) {
               selectedSessions.includes(session.id) && styles.checkboxChecked
             ]}>
               {selectedSessions.includes(session.id) && (
-                <Text style={styles.checkmark}>✓</Text>
+                <Feather name="check" size={18} color="white" />
               )}
             </View>
             <Text style={styles.sessionLabel}>
@@ -206,11 +207,6 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: theme.colors.success,
     borderColor: theme.colors.success,
-  },
-  checkmark: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: theme.typography.fontWeight.semibold,
   },
   sessionLabel: {
     fontSize: theme.typography.fontSize.md,

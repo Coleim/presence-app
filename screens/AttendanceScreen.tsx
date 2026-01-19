@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, Alert } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
-export default function AttendanceScreen({ route, navigation }) {
+export default function AttendanceScreen({ route, navigation }: any) {
   const { session, date } = route.params;
-  const [participants, setParticipants] = useState([]);
-  const [attendance, setAttendance] = useState({});
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any>({});
 
   useEffect(() => {
-    fetchParticipants();
-    fetchExistingAttendance();
+    loadData();
   }, []);
 
-  const fetchParticipants = async () => {
+  const loadData = async () => {
+    console.log('[DEBUG AttendanceScreen] Loading session date:', date);
+    
+    // Load participants first
     const data = await dataService.getParticipantsWithSessions(session.club_id);
     
     // Sort participants: 1) Preferred session first, 2) By last name
@@ -30,21 +33,23 @@ export default function AttendanceScreen({ route, navigation }) {
     });
     
     setParticipants(sortedData);
+    
     // Initialize attendance as absent
-    const init = {};
+    const init: any = {};
     sortedData.forEach(p => init[p.id] = false);
+    
+    // Load existing attendance and merge with init
+    console.log('[DEBUG AttendanceScreen] Loading existing attendance');
+    const existingData = await dataService.getAttendance(session.id, date);
+    existingData.forEach(a => {
+      init[a.participant_id] = a.status === 'present';
+    });
+    
     setAttendance(init);
   };
 
-  const fetchExistingAttendance = async () => {
-    const data = await dataService.getAttendance(session.id, date);
-    const existing = {};
-    data.forEach(a => existing[a.participant_id] = a.status === 'present');
-    setAttendance(prev => ({ ...prev, ...existing }));
-  };
-
-  const toggleAttendance = (id) => {
-    setAttendance(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleAttendance = (id: any) => {
+    setAttendance((prev: any) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const saveAttendance = async () => {
@@ -58,14 +63,63 @@ export default function AttendanceScreen({ route, navigation }) {
     navigation.goBack();
   };
 
+  const shareAttendance = async () => {
+    try {
+      const presentParticipants = participants.filter(p => attendance[p.id]);
+      const absentParticipants = participants.filter(p => !attendance[p.id] && p.preferred_session_ids?.includes(session.id));
+      
+      const formattedDate = new Date(date).toLocaleDateString('fr-FR', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long',
+        year: 'numeric'
+      });
+      
+      let message = `📊 Présences du ${formattedDate}\n`;
+      message += `${session.day_of_week} ${session.start_time} à ${session.end_time}\n\n`;
+      message += `✅ Présents (${presentCount}/${assignedParticipantsCount}):\n`;
+      
+      if (presentParticipants.length > 0) {
+        presentParticipants.forEach(p => {
+          message += `  • ${p.first_name} ${p.last_name.toUpperCase()}\n`;
+        });
+      } else {
+        message += `  Aucun présent\n`;
+      }
+      
+      if (absentParticipants.length > 0) {
+        message += `\n❌ Absents (${absentParticipants.length}):\n`;
+        absentParticipants.forEach(p => {
+          message += `  • ${p.first_name} ${p.last_name.toUpperCase()}\n`;
+        });
+      }
+      
+      const result = await Share.share({
+        message: message,
+      });
+      
+      if (result.action === Share.sharedAction) {
+        if (result.activityType) {
+          console.log('Shared with activity type:', result.activityType);
+        } else {
+          console.log('Shared successfully');
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Impossible de partager les présences.');
+    }
+  };
+
   const uncheckAll = () => {
-    const resetAttendance = {};
+    const resetAttendance: any = {};
     participants.forEach(p => resetAttendance[p.id] = false);
     setAttendance(resetAttendance);
   };
 
   const presentCount = Object.values(attendance).filter(Boolean).length;
-  const totalCount = participants.length;
+  const assignedParticipantsCount = participants.filter(p => 
+    p.preferred_session_ids?.includes(session.id)
+  ).length;
 
   return (
     <View style={styles.container}>
@@ -94,7 +148,7 @@ export default function AttendanceScreen({ route, navigation }) {
         {/* Attendance Header with count and uncheck button */}
       <View style={styles.attendanceHeader}>
           <Text style={styles.presentCountText}>
-            Présents: {presentCount}
+            Présents: {presentCount} / {assignedParticipantsCount}
           </Text>
           <TouchableOpacity style={styles.uncheckButton} onPress={uncheckAll}>
             <Text style={styles.uncheckButtonText}>Tout décocher</Text>
@@ -120,13 +174,13 @@ export default function AttendanceScreen({ route, navigation }) {
                     styles.checkbox,
                     attendance[item.id] && styles.checkboxChecked
                   ]}>
-                    {attendance[item.id] && <Text style={styles.checkmark}>✓</Text>}
+                    {attendance[item.id] && <Feather name="check" size={20} color="white" />}
                   </View>
                   <Text style={styles.participantName}>
                     {item.last_name.toUpperCase()} {item.first_name}
                   </Text>
                   {isAssignedSession && (
-                    <Text style={styles.assignedBadge}>⭐</Text>
+                    <Feather name="star" size={16} color="#FFB84D" style={styles.assignedBadge} />
                   )}
                 </TouchableOpacity>
               );
@@ -136,6 +190,12 @@ export default function AttendanceScreen({ route, navigation }) {
 
       {/* Save Button */}
       <View style={styles.saveContainer}>
+          <TouchableOpacity style={styles.buttonSecondary} onPress={shareAttendance}>
+            <View style={styles.buttonWithIcon}>
+              <Feather name="share-2" size={18} color={theme.colors.primary[700]} />
+              <Text style={styles.buttonSecondaryText}>Partager</Text>
+            </View>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.buttonPrimary} onPress={saveAttendance}>
             <Text style={styles.buttonPrimaryText}>Enregistrer</Text>
           </TouchableOpacity>
@@ -239,14 +299,36 @@ const styles = StyleSheet.create({
     marginLeft: theme.space[3],
   },
   assignedBadge: {
-    fontSize: 18,
     marginLeft: theme.space[2],
   },
-  saveContainer: { marginTop: theme.space[5], marginBottom: theme.space[5], paddingHorizontal: theme.space[4] },
-  buttonPrimary: theme.components.buttonPrimary,
+  saveContainer: { 
+    marginTop: theme.space[5], 
+    marginBottom: theme.space[5], 
+    paddingHorizontal: theme.space[4],
+    flexDirection: 'row',
+    gap: theme.space[3],
+  },
+  buttonWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space[2],
+  },
+  buttonPrimary: {
+    ...theme.components.buttonPrimary,
+    flex: 1,
+  },
+  buttonSecondary: {
+    ...theme.components.buttonSecondary,
+    flex: 1,
+  },
   buttonPrimaryText: {
     color: theme.colors.surface,
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.semibold,
+  },
+  buttonSecondaryText: {
+    color: theme.colors.primary[700],
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
   },
 });

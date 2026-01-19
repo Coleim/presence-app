@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Keyboard } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
 
-export default function ClubDetailsScreen({ route, navigation }) {
+export default function ClubDetailsScreen({ route, navigation }: any) {
   const { club } = route.params;
-  const [sessions, setSessions] = useState([]);
-  const [participants, setParticipants] = useState([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(club.name);
 
   useEffect(() => {
     fetchSessions();
@@ -121,6 +124,49 @@ export default function ClubDetailsScreen({ route, navigation }) {
     );
   };
 
+  const resetStats = async () => {
+    Alert.alert(
+      'Démarrer l\'année',
+      'Cette action va réinitialiser toutes les statistiques de présence. Les présences ne seront comptabilisées qu\'à partir d\'aujourd\'hui. Cette action est irréversible.\n\nVoulez-vous continuer ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Réinitialiser',
+          style: 'destructive',
+          onPress: async () => {
+            await dataService.resetClubStats(club.id);
+            
+            // Reload club with updated stats_reset_date
+            const clubs = await dataService.getClubs();
+            const updatedClub = clubs.find(c => c.id === club.id);
+            
+            Alert.alert('Succès', 'Les statistiques ont été réinitialisées.');
+            
+            // Update navigation params with fresh club data
+            if (updatedClub) {
+              navigation.setParams({ club: updatedClub });
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const saveClubName = async () => {
+    Keyboard.dismiss();
+    
+    if (!editedName.trim()) {
+      Alert.alert('Erreur', 'Le nom du club ne peut pas être vide.');
+      setEditedName(club.name);
+      setIsEditingName(false);
+      return;
+    }
+    
+    await dataService.saveClub({ ...club, name: editedName.trim() });
+    navigation.setParams({ club: { ...club, name: editedName.trim() } });
+    setIsEditingName(false);
+  };
+
   return (
     <View style={styles.container}>
       {/* Header Container */}
@@ -134,8 +180,49 @@ export default function ClubDetailsScreen({ route, navigation }) {
         </View>
       </View>
 
-      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.title}>{club.name}</Text>
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.titleContainer}>
+          {isEditingName ? (
+            <>
+              <TextInput
+                style={styles.titleInput}
+                value={editedName}
+                onChangeText={setEditedName}
+                autoFocus
+                selectTextOnFocus
+              />
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={saveClubName}
+              >
+                <Feather name="check" size={28} color={theme.colors.success} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => {
+                  setEditedName(club.name);
+                  setIsEditingName(false);
+                }}
+              >
+                <Feather name="x" size={28} color={theme.colors.danger} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.title}>{club.name}</Text>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => setIsEditingName(true)}
+              >
+                <Feather name="edit" size={18} color={theme.colors.primary[700]} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
         {club.description && <Text style={styles.description}>{club.description}</Text>}
 
         <View style={styles.buttonContainer}>
@@ -143,21 +230,30 @@ export default function ClubDetailsScreen({ route, navigation }) {
             style={styles.buttonPrimary}
             onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
           >
-            <Text style={styles.buttonPrimaryText}>Ajouter une session</Text>
+            <View style={styles.buttonWithIcon}>
+              <Feather name="plus-circle" size={18} color="white" />
+              <Text style={styles.buttonPrimaryText}>Ajouter une session</Text>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
           >
-            <Text style={styles.buttonSecondaryText}>Ajouter un participant</Text>
+            <View style={styles.buttonWithIcon}>
+              <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
+              <Text style={styles.buttonSecondaryText}>Ajouter un participant</Text>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={() => navigation.navigate('Stats', { club })}
           >
-            <Text style={styles.buttonSecondaryText}>Voir les statistiques</Text>
+            <View style={styles.buttonWithIcon}>
+              <Feather name="bar-chart-2" size={18} color={theme.colors.primary[700]} />
+              <Text style={styles.buttonSecondaryText}>Voir les statistiques</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -199,6 +295,25 @@ export default function ClubDetailsScreen({ route, navigation }) {
             scrollEnabled={false}
             ListEmptyComponent={<Text style={styles.emptyText}>Aucun participant</Text>}
           />
+        </View>
+
+        {/* Admin Section */}
+        <View style={styles.adminSection}>
+          <Text style={styles.adminSectionTitle}>Administration</Text>
+          <TouchableOpacity
+            style={styles.buttonAdmin}
+            onPress={resetStats}
+          >
+            <View style={styles.buttonWithIcon}>
+              <Feather name="refresh-cw" size={18} color="white" />
+              <Text style={styles.buttonAdminText}>Démarrer l'année</Text>
+            </View>
+          </TouchableOpacity>
+          {club.stats_reset_date && (
+            <Text style={styles.resetDateText}>
+              Stats depuis le {new Date(club.stats_reset_date).toLocaleDateString('fr-FR')}
+            </Text>
+          )}
         </View>
 
         <View style={styles.dangerContainer}>
@@ -246,11 +361,37 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: theme.space[4],
   },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: theme.space[2],
+  },
   title: {
     fontSize: theme.typography.fontSize.xl,
     fontWeight: theme.typography.fontWeight.semibold,
     color: theme.colors.text.primary,
-    marginBottom: theme.space[2],
+  },
+  titleInput: {
+    fontSize: theme.typography.fontSize.xl,
+    fontWeight: theme.typography.fontWeight.semibold,
+    color: theme.colors.text.primary,
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary[700],
+    paddingVertical: theme.space[1],
+    minWidth: 100,
+  },
+  editButton: {
+    padding: theme.space[1],
+    marginLeft: theme.space[1] / 2,
+  },
+  actionButton: {
+    padding: theme.space[2],
+    marginLeft: theme.space[2],
+  },
+  buttonWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space[2],
   },
   description: {
     fontSize: theme.typography.fontSize.md,
@@ -271,6 +412,53 @@ const styles = StyleSheet.create({
   buttonSecondaryText: {
     color: theme.colors.text.secondary,
     fontSize: theme.typography.fontSize.md,
+  },
+  buttonTest: {
+    backgroundColor: '#FFF4E6',
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.space[3],
+    paddingHorizontal: theme.space[4],
+    alignItems: 'center',
+    marginTop: theme.space[2],
+    borderWidth: 1,
+    borderColor: '#FFB84D',
+  },
+  buttonTestText: {
+    color: '#CC7A00',
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.medium,
+  },
+  adminSection: {
+    marginTop: theme.space[6],
+    padding: theme.space[4],
+    backgroundColor: '#E6EEF5',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#B0C4D9',
+  },
+  adminSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.primary[900],
+    marginBottom: theme.space[3],
+  },
+  buttonAdmin: {
+    backgroundColor: theme.colors.primary[700],
+    padding: theme.space[3],
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonAdminText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  resetDateText: {
+    fontSize: 12,
+    color: '#4A7BA7',
+    marginTop: theme.space[2],
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   section: {
     marginBottom: theme.space[5],

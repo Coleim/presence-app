@@ -92,7 +92,35 @@ class DataService {
     const clubs = await this.getClubs();
     return clubs.find(c => c.id === id) || null;
   }
-
+  resetClubStats = async (clubId: string): Promise<void> => {
+    const resetDate = new Date().toISOString().split('T')[0];
+    console.log('[DEBUG resetClubStats] Reset date:', resetDate);
+    
+    // Update club with reset date
+    const clubs = await this.getClubs();
+    const updatedClubs = clubs.map(c => {
+      if (c.id === clubId) {
+        console.log('[DEBUG resetClubStats] Updating club:', c.name, 'with reset date:', resetDate);
+        return { ...c, stats_reset_date: resetDate };
+      }
+      return c;
+    });
+    await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(updatedClubs));
+    console.log('[DEBUG resetClubStats] Saved to AsyncStorage');
+    
+    // Delete ALL attendance records from local storage
+    await AsyncStorage.removeItem(ATTENDANCE_KEY);
+    console.log('[DEBUG resetClubStats] Deleted all attendance records from local storage');
+    
+    if (this.isOnline) {
+      try {
+        const club = updatedClubs.find(c => c.id === clubId);
+        await supabase.from('clubs').update({ stats_reset_date: club?.stats_reset_date }).eq('id', clubId);
+      } catch (e) {
+        console.log('Reset stats locally, sync later');
+      }
+    }
+  }
   deleteClub = async (id: string): Promise<void> => {
     const clubs = await this.getClubs();
     const filtered = clubs.filter(c => c.id !== id);
@@ -318,7 +346,9 @@ class DataService {
 
   getAllAttendance = async (): Promise<AttendanceRecord[]> => {
     const local = await AsyncStorage.getItem(ATTENDANCE_KEY);
-    return local ? JSON.parse(local) : [];
+    const allAttendance = local ? JSON.parse(local) : [];
+    console.log('[DEBUG getAllAttendance] Total attendance records:', allAttendance.length);
+    return allAttendance;
   }
 
   saveAttendance = async (records: AttendanceRecord[]): Promise<void> => {
