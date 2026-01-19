@@ -106,23 +106,6 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
     );
   };
 
-  const deleteParticipant = async (participantId: string, participantName: string) => {
-    Alert.alert(
-      'Supprimer le participant',
-      `Voulez-vous supprimer ${participantName} ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            await dataService.deleteParticipant(participantId);
-            fetchParticipants(); // Refresh list
-          }
-        }
-      ]
-    );
-  };
 
   const resetStats = async () => {
     Alert.alert(
@@ -227,32 +210,32 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={styles.buttonPrimary}
+            style={styles.buttonOutline}
             onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
           >
             <View style={styles.buttonWithIcon}>
-              <Feather name="plus-circle" size={18} color="white" />
-              <Text style={styles.buttonPrimaryText}>Ajouter une session</Text>
+              <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
+              <Text style={styles.buttonOutlineText}>Ajouter une session</Text>
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.buttonSecondary}
+            style={styles.buttonOutline}
             onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
           >
             <View style={styles.buttonWithIcon}>
               <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonSecondaryText}>Ajouter un participant</Text>
+              <Text style={styles.buttonOutlineText}>Ajouter un participant</Text>
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.buttonSecondary}
+            style={styles.buttonOutline}
             onPress={() => navigation.navigate('Stats', { club })}
           >
             <View style={styles.buttonWithIcon}>
               <Feather name="bar-chart-2" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonSecondaryText}>Voir les statistiques</Text>
+              <Text style={styles.buttonOutlineText}>Voir les statistiques</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -285,11 +268,19 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.listItem}
-                onLongPress={() => deleteParticipant(item.id, `${item.first_name} ${item.last_name}`)}
+                onPress={() => navigation.navigate('EditParticipant', { participant: item, clubId: club.id })}
               >
-                <Text style={styles.listItemText}>
-                  {item.last_name.toUpperCase()} {item.first_name}
-                </Text>
+                <View style={styles.listItemContent}>
+                  <Text style={styles.listItemText}>
+                    {item.last_name.toUpperCase()} {item.first_name}
+                  </Text>
+                  {item.is_long_term_sick && (
+                    <View style={styles.sickBadge}>
+                      <Text style={styles.sickBadgeText}>Malade</Text>
+                    </View>
+                  )}
+                </View>
+                <Feather name="chevron-right" size={20} color={theme.colors.text.secondary} />
               </TouchableOpacity>
             )}
             scrollEnabled={false}
@@ -402,6 +393,19 @@ const styles = StyleSheet.create({
     gap: theme.space[3],
     marginBottom: theme.space[6],
   },
+  buttonOutline: {
+    borderWidth: 1,
+    borderColor: theme.colors.primary[700],
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.space[3],
+    paddingHorizontal: theme.space[4],
+    alignItems: 'center',
+  },
+  buttonOutlineText: {
+    color: theme.colors.primary[700],
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
+  },
   buttonPrimary: theme.components.buttonPrimary,
   buttonPrimaryText: {
     color: theme.colors.surface,
@@ -470,6 +474,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.space[3],
   },
   listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
     padding: theme.space[4],
@@ -477,9 +484,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+  listItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: theme.space[2],
+  },
   listItemText: {
     fontSize: theme.typography.fontSize.md,
     color: theme.colors.text.primary,
+  },
+  sickBadge: {
+    backgroundColor: theme.colors.dangerBg,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: theme.space[2],
+    paddingVertical: theme.space[1] / 2,
+  },
+  sickBadgeText: {
+    fontSize: theme.typography.fontSize.xs,
+    color: theme.colors.danger,
+    fontWeight: theme.typography.fontWeight.medium,
   },
   emptyText: {
     fontSize: theme.typography.fontSize.md,

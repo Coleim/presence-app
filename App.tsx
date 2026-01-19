@@ -10,6 +10,7 @@ import CreateClubScreen from './screens/CreateClubScreen';
 import ClubDetailsScreen from './screens/ClubDetailsScreen';
 import AddSessionScreen from './screens/AddSessionScreen';
 import AddParticipantScreen from './screens/AddParticipantScreen';
+import EditParticipantScreen from './screens/EditParticipantScreen';
 import SessionSelectionScreen from './screens/SessionSelectionScreen';
 import AttendanceScreen from './screens/AttendanceScreen';
 import StatsScreen from './screens/StatsScreen';
@@ -23,6 +24,7 @@ type RootStackParamList = {
   ClubDetails: { club: any };
   AddSession: { clubId: string };
   AddParticipant: { clubId: string };
+  EditParticipant: { participant: any; clubId: string };
   SessionSelection: { club: any };
   Attendance: { session: any; date: string };
   Stats: { club: any };
@@ -44,6 +46,7 @@ function AppNavigator() {
         <Stack.Screen name="ClubDetails" component={ClubDetailsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AddSession" component={AddSessionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AddParticipant" component={AddParticipantScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="EditParticipant" component={EditParticipantScreen} options={{ headerShown: false }} />
         <Stack.Screen name="SessionSelection" component={SessionSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Attendance" component={AttendanceScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Stats" component={StatsScreen} options={{ headerShown: false }} />

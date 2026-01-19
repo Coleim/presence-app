@@ -19,7 +19,9 @@ export default function StatsScreen({ route, navigation }: any) {
     console.log('[DEBUG fetchStats] Attendance records:', allAttendance.length);
     const sessions = await dataService.getSessions(club.id);
 
-    const participantStats = participants.map(p => {
+    const participantStats = participants
+      .filter(p => !p.is_long_term_sick) // Exclude long-term sick participants
+      .map(p => {
       const pAttendance = allAttendance.filter(a => a.participant_id === p.id);
       
       // Separate attendance into assigned and bonus sessions

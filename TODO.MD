@@ -1,8 +1,14 @@
 
-
 À venir :
-- Modifier les sessions assignées d'un participant existant
 - Creer le club: Rajouter une image/logo
+
+
+
+- Supabase
+- OAuth
+- Partager le club avec quelqu'un (link share + passcode)
+- Sync
+
 
 
 Plus tard: 
