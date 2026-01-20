@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Keyboard } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
 export default function ClubDetailsScreen({ route, navigation }: any) {
@@ -10,11 +11,18 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
   const [participants, setParticipants] = useState<any[]>([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(club.name);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    checkAuth();
     fetchSessions();
     fetchParticipants();
   }, []);
+
+  const checkAuth = async () => {
+    const isAuth = await authManager.isAuthenticated();
+    setIsAuthenticated(isAuth);
+  };
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -306,6 +314,20 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             </Text>
           )}
         </View>
+
+        {isAuthenticated && (
+          <View style={styles.adminContainer}>
+            <TouchableOpacity 
+              style={styles.buttonOutline} 
+              onPress={() => navigation.navigate('ShareClub', { clubId: club.id, clubName: club.name })}
+            >
+              <View style={styles.buttonContent}>
+                <Feather name="share-2" size={20} color={theme.colors.primary[700]} />
+                <Text style={styles.buttonOutlineText}>Partager le club</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.dangerContainer}>
           <TouchableOpacity style={styles.buttonDanger} onPress={deleteClub}>

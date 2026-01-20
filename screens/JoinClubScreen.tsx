@@ -1,18 +1,52 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { dataService } from '../lib/dataService';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { syncService } from '../lib/syncService';
 import { theme } from '../lib/theme';
 
 export default function JoinClubScreen({ navigation }) {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const joinClub = async () => {
-    const club = await dataService.joinClub(code, password);
-    if (club) {
-      navigation.goBack();
-    } else {
-      alert('Invalid code or password, or offline');
+    if (!code.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer un code de partage');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const clubId = await syncService.joinClubWithCode(
+        code.trim().toUpperCase(),
+        password.trim() || undefined
+      );
+      
+      Alert.alert(
+        'Succès',
+        'Vous avez rejoint le club avec succès!',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Navigate to the club details or back to home
+              navigation.navigate('Home');
+            }
+          }
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error joining club:', error);
+      
+      let errorMessage = 'Impossible de rejoindre le club';
+      if (error.message?.includes('not found')) {
+        errorMessage = 'Code de partage invalide';
+      } else if (error.message?.includes('password')) {
+        errorMessage = 'Mot de passe incorrect';
+      }
+      
+      Alert.alert('Erreur', errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -34,26 +68,37 @@ export default function JoinClubScreen({ navigation }) {
 
         <Text style={styles.label}>Code du club</Text>
         <TextInput
-          placeholder="Entrez le code du club"
+          placeholder="Ex: ABC123"
           value={code}
-          onChangeText={setCode}
+          onChangeText={(text) => setCode(text.toUpperCase())}
           style={styles.input}
           placeholderTextColor={theme.colors.text.secondary}
           autoCapitalize="characters"
+          maxLength={6}
+          editable={!loading}
         />
 
-        <Text style={styles.label}>Mot de passe</Text>
+        <Text style={styles.label}>Mot de passe (optionnel)</Text>
         <TextInput
-          placeholder="Entrez le mot de passe"
+          placeholder="Si requis"
           value={password}
           onChangeText={setPassword}
           style={styles.input}
           secureTextEntry
           placeholderTextColor={theme.colors.text.secondary}
+          editable={!loading}
         />
 
-        <TouchableOpacity style={styles.buttonPrimary} onPress={joinClub}>
-          <Text style={styles.buttonPrimaryText}>Rejoindre le club</Text>
+        <TouchableOpacity 
+          style={[styles.buttonPrimary, loading && styles.buttonDisabled]} 
+          onPress={joinClub}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonPrimaryText}>Rejoindre le club</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -116,6 +161,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.space[4],
   },
   buttonPrimary: theme.components.buttonPrimary,
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   buttonPrimaryText: {
     color: theme.colors.surface,
     fontSize: theme.typography.fontSize.md,

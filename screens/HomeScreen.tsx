@@ -2,23 +2,68 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { syncService } from '../lib/syncService';
+import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
 export default function HomeScreen({ navigation }: any) {
   const [clubs, setClubs] = useState<any[]>([]);
   const [selectedClub, setSelectedClub] = useState<any>(null);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
+  const [syncStatus, setSyncStatus] = useState<string>('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    console.log('[HomeScreen] Component mounted');
+    checkAuth();
     fetchData();
   }, []);
 
   useEffect(() => {
+    console.log('[HomeScreen] Adding focus listener');
     const unsubscribe = navigation.addListener('focus', () => {
+      console.log('[HomeScreen] Screen focused, fetching data');
       fetchData();
     });
     return unsubscribe;
   }, [navigation]);
+
+  // Start auto-sync when authenticated
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    
+    if (isAuthenticated) {
+      console.log('[HomeScreen] User authenticated, starting auto-sync');
+      // Start auto-sync
+      syncService.startAutoSync();
+      
+      // Subscribe to sync status
+      unsubscribe = syncService.onSyncStatusChange((status) => {
+        if (status.isSyncing) {
+          setSyncStatus('Synchronisation...');
+        } else if (status.lastSync) {
+          const minutes = Math.floor((Date.now() - status.lastSync.getTime()) / 60000);
+          setSyncStatus(minutes === 0 ? 'Synchronisé' : `Sync il y a ${minutes}min`);
+        }
+      });
+    } else {
+      console.log('[HomeScreen] User not authenticated, skipping auto-sync');
+    }
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+      if (isAuthenticated) {
+        syncService.stopAutoSync();
+      }
+    };
+  }, [isAuthenticated]);
+
+  const checkAuth = async () => {
+    console.log('[HomeScreen] checkAuth called');
+    const isAuth = await authManager.isAuthenticated();
+    console.log('[HomeScreen] isAuthenticated:', isAuth);
+    setIsAuthenticated(isAuth);
+  };
 
   const fetchData = async () => {
     const clubsData = await dataService.getClubs();
@@ -179,6 +224,14 @@ export default function HomeScreen({ navigation }: any) {
               <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
                 <Text style={styles.buttonPrimaryText}>Créer un club</Text>
               </TouchableOpacity>
+              {isAuthenticated && (
+                <TouchableOpacity 
+                  style={[styles.buttonSecondary, { marginTop: 12 }]} 
+                  onPress={() => navigation.navigate('JoinClub')}
+                >
+                  <Text style={styles.buttonSecondaryText}>Rejoindre un club</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
       </View>
@@ -201,6 +254,11 @@ export default function HomeScreen({ navigation }: any) {
             )}
           </View>
           <Text style={styles.clubName}>{selectedClub?.name}</Text>
+          {isAuthenticated && syncStatus && (
+            <Text style={styles.syncStatus}>
+              {syncStatus}
+            </Text>
+          )}
         </View>
         {clubs.length <= 1 && <View style={styles.headerSpacer} />}
       </View>
@@ -441,5 +499,12 @@ const styles = StyleSheet.create({
     color: theme.colors.primary[700],
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.medium,
+  },
+  syncStatus: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.8,
+    marginTop: 4,
+    textAlign: 'center',
   },
 });

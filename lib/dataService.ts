@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import { syncService } from './syncService';
 
 const CLUBS_KEY = 'clubs';
 const SESSIONS_KEY = 'sessions';
@@ -55,18 +56,25 @@ export interface User {
 }
 
 class DataService {
+  public isOnline: boolean;
+
   constructor() {
     this.isOnline = false;
-    this.checkOnline();
+    // Don't check online on construction - do it lazily
   }
 
   checkOnline = async () => {
     try {
       // Simple check if supabase is configured
-      if (supabase && supabase.supabaseUrl !== 'YOUR_SUPABASE_URL') {
-        await supabase.from('clubs').select('id').limit(1);
-        this.isOnline = true;
+      if (!isSupabaseConfigured) {
+        console.log('[DataService] Supabase not configured, offline mode');
+        this.isOnline = false;
+        return;
       }
+      
+      // Try a simple query without auth
+      await supabase.from('clubs').select('id').limit(0);
+      this.isOnline = true;
     } catch {
       this.isOnline = false;
     }
@@ -120,11 +128,12 @@ class DataService {
   }
   deleteClub = async (id: string): Promise<void> => {
     const clubs = await this.getClubs();
+    const club = clubs.find(c => c.id === id);
     const filtered = clubs.filter(c => c.id !== id);
     await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(filtered));
-    if (this.isOnline) {
+    if (this.isOnline && club) {
       try {
-        await supabase.from('clubs').delete().eq('id', id);
+        await syncService.uploadToSupabase('clubs', club, 'DELETE');
       } catch (e) {
         console.info('Delete sync later');
       }
@@ -157,20 +166,25 @@ class DataService {
   saveClub = async (club: Club): Promise<Club> => {
     const clubs = await this.getClubs();
     const existingIndex = clubs.findIndex(c => c.id === club.id);
+    const isNew = existingIndex < 0;
+    
     if (existingIndex >= 0) {
       clubs[existingIndex] = club;
     } else {
-      club.id = Date.now().toString(); // Local ID
+      // Generate UUID for new club
+      club.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       clubs.push(club);
     }
     await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
+    
     if (this.isOnline) {
       try {
-        const { data, error } = await supabase.from('clubs').upsert(club).select();
-        if (!error && data) {
+        const serverData = await syncService.uploadToSupabase('clubs', club, isNew ? 'INSERT' : 'UPDATE');
+        if (serverData) {
           // Update with server ID
-          club.id = data[0].id;
-          await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
+          club.id = serverData.id;
+          const updatedClubs = clubs.map(c => c.id === club.id || c.id === serverData.id ? serverData : c);
+          await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(updatedClubs));
         }
       } catch (e) {
         console.info('Save locally, sync later');
@@ -207,19 +221,23 @@ class DataService {
     const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
     let sessions = allSessions ? JSON.parse(allSessions) : [];
     const existingIndex = sessions.findIndex(s => s.id === session.id);
+    const isNew = existingIndex < 0;
+    
     if (existingIndex >= 0) {
       sessions[existingIndex] = session;
     } else {
-      session.id = Date.now().toString();
+      session.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       sessions.push(session);
     }
     await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    
     if (this.isOnline) {
       try {
-        const { data, error } = await supabase.from('sessions').upsert(session).select();
-        if (!error && data) {
-          session.id = data[0].id;
-          await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+        const serverData = await syncService.uploadToSupabase('sessions', session, isNew ? 'INSERT' : 'UPDATE');
+        if (serverData) {
+          session.id = serverData.id;
+          const updatedSessions = sessions.map(s => s.id === session.id || s.id === serverData.id ? serverData : s);
+          await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(updatedSessions));
         }
       } catch (e) {
         console.info('Save locally');
@@ -230,13 +248,16 @@ class DataService {
 
   deleteSession = async (id: string): Promise<void> => {
     const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
+    let session = null;
     if (allSessions) {
-      const sessions = JSON.parse(allSessions).filter(s => s.id !== id);
-      await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+      const sessions = JSON.parse(allSessions);
+      session = sessions.find(s => s.id === id);
+      const filtered = sessions.filter(s => s.id !== id);
+      await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(filtered));
     }
-    if (this.isOnline) {
+    if (this.isOnline && session) {
       try {
-        await supabase.from('sessions').delete().eq('id', id);
+        await syncService.uploadToSupabase('sessions', session, 'DELETE');
       } catch (e) {
         console.info('Delete sync later');
       }
@@ -276,19 +297,23 @@ class DataService {
     const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
     let participants = allParticipants ? JSON.parse(allParticipants) : [];
     const existingIndex = participants.findIndex(p => p.id === participant.id);
+    const isNew = existingIndex < 0;
+    
     if (existingIndex >= 0) {
       participants[existingIndex] = participant;
     } else {
-      participant.id = Date.now().toString();
+      participant.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       participants.push(participant);
     }
     await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
+    
     if (this.isOnline) {
       try {
-        const { data, error } = await supabase.from('participants').upsert(participant).select();
-        if (!error && data) {
-          participant.id = data[0].id;
-          await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
+        const serverData = await syncService.uploadToSupabase('participants', participant, isNew ? 'INSERT' : 'UPDATE');
+        if (serverData) {
+          participant.id = serverData.id;
+          const updatedParticipants = participants.map(p => p.id === participant.id || p.id === serverData.id ? serverData : p);
+          await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(updatedParticipants));
         }
       } catch (e) {
         console.info('Save locally');
@@ -299,13 +324,16 @@ class DataService {
 
   deleteParticipant = async (id: string): Promise<void> => {
     const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
+    let participant = null;
     if (allParticipants) {
-      const participants = JSON.parse(allParticipants).filter(p => p.id !== id);
-      await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
+      const participants = JSON.parse(allParticipants);
+      participant = participants.find(p => p.id === id);
+      const filtered = participants.filter(p => p.id !== id);
+      await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(filtered));
     }
-    if (this.isOnline) {
+    if (this.isOnline && participant) {
       try {
-        await supabase.from('participants').delete().eq('id', id);
+        await syncService.uploadToSupabase('participants', participant, 'DELETE');
       } catch (e) {
         console.info('Delete sync later');
       }
@@ -366,10 +394,14 @@ class DataService {
     
     if (this.isOnline) {
       try {
-        // Upsert each record
+        // Upload each record using syncService
         for (const record of records) {
+<<<<<<< HEAD
           const { error } = await supabase.from('attendance').upsert(record);
           if (error) console.error('Sync error:', error);
+=======
+          await syncService.uploadToSupabase('attendance', record, 'INSERT');
+>>>>>>> e906b1e (feat: Implement club sharing and joining features with authentication)
         }
       } catch (e) {
         console.info('Save locally, sync later');
@@ -380,8 +412,11 @@ class DataService {
   getUser = async (): Promise<User | null> => {
     const local = await AsyncStorage.getItem(USER_KEY);
     if (local) return JSON.parse(local);
-    if (this.isOnline && supabase.auth.user()) {
-      const user = supabase.auth.user();
+    
+    // Use authManager to get session without lock contention
+    const session = await authManager.getSession();
+    if (this.isOnline && session?.user) {
+      const user = session.user;
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
       return user;
     }
