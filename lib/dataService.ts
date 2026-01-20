@@ -29,9 +29,6 @@ export interface Participant {
   club_id: string;
   first_name: string;
   last_name: string;
-  grade?: string;
-  level?: string;
-  notes?: string;
   is_long_term_sick?: boolean; // Exclude from attendance statistics
   preferred_session_ids?: string[]; // Array of session IDs this participant is assigned to
 }

@@ -95,7 +95,9 @@ export default function HomeScreen({ navigation }: any) {
   };
 
   const fetchSessionsForClub = async (club: any) => {
+    console.log('[HomeScreen] Fetching sessions for club:', club.id, club.name);
     const sessions = await dataService.getSessions(club.id);
+    console.log('[HomeScreen] Found sessions:', sessions.length, sessions);
     const now = new Date();
     const upcoming = [];
     const weeksToGenerate = 4; // Generate 4 weeks of sessions

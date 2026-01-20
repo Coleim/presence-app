@@ -39,6 +39,17 @@ const AuthScreen: React.FC = () => {
     checkNeverAskAgain();
   }, []);
 
+  // Redirect to Home if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log('[AuthScreen] Already authenticated, navigating to Home');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
+    }
+  }, [isAuthenticated]);
+
   const checkAuth = async () => {
     const isAuth = await authManager.isAuthenticated();
     setIsAuthenticated(isAuth);
@@ -62,8 +73,25 @@ const AuthScreen: React.FC = () => {
   const signInWithGoogle = async (): Promise<void> => {
     try {
       setLoading(true);
-      await signInWithOAuth('google');
+      const session = await signInWithOAuth('google');
+      
+      if (session?.user) {
+        console.log('[AuthScreen] ✅ OAuth successful, user:', session.user.email);
+        await dataService.setUser(session.user);
+        await dataService.checkOnline(); // Check if online after login
+        setUser(session.user);
+        setIsAuthenticated(true);
+        
+        // Navigate to Home
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
+      } else {
+        Alert.alert('Erreur', 'Connexion annulée ou échouée');
+      }
     } catch (error: any) {
+      console.error('[AuthScreen] ❌ OAuth error:', error);
       Alert.alert('Erreur', error.message || 'Une erreur est survenue');
     } finally {
       setLoading(false);

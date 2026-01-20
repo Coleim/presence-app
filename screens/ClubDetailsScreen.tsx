@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Keyboard } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { syncService } from '../lib/syncService';
 import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
@@ -107,6 +108,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             await dataService.deleteSession(sessionId);
+            await syncService.syncNow(); // Sync immediately
             fetchSessions(); // Refresh list
           }
         }

@@ -1,4 +1,13 @@
 
+Sync a faire:
+1 - club
+2 - creation de session (empecher de creer un participant si on a pas de session)
+3 - creer un participant
+4 - update un participant
+
+5 - marquer la presence
+
+
 À venir :
 - Creer le club: Rajouter une image/logo
 

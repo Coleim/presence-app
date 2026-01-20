@@ -661,6 +661,50 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================
+-- FUNCTIONS: Créer un club avec membership (pour éviter récursion infinie)
+-- ============================================
+CREATE OR REPLACE FUNCTION create_club_with_membership(
+  p_name TEXT,
+  p_description TEXT,
+  p_user_id UUID
+)
+RETURNS TABLE (
+  id UUID,
+  name TEXT,
+  description TEXT,
+  share_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE
+) AS $$
+DECLARE
+  v_club_id UUID;
+  v_share_code TEXT;
+BEGIN
+  -- Générer un share_code unique
+  v_share_code := generate_share_code();
+  
+  -- Insérer le club SANS déclencher le trigger (on set share_code manuellement)
+  INSERT INTO clubs (name, description, share_code, created_by, last_modified_by)
+  VALUES (p_name, p_description, v_share_code, p_user_id, p_user_id)
+  RETURNING clubs.id INTO v_club_id;
+  
+  -- Créer le membership
+  INSERT INTO club_members (club_id, user_id, role)
+  VALUES (v_club_id, p_user_id, 'owner');
+  
+  -- Retourner les infos du club
+  RETURN QUERY
+  SELECT 
+    clubs.id,
+    clubs.name,
+    clubs.description,
+    clubs.share_code,
+    clubs.created_at
+  FROM clubs
+  WHERE clubs.id = v_club_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
 -- FUNCTIONS: Obtenir les changements depuis un timestamp
 -- ============================================
 -- Pour la synchronisation incrémentale
@@ -730,6 +774,7 @@ CREATE INDEX idx_sync_log_club_changes ON sync_log(timestamp)
 -- ============================================
 -- Les utilisateurs authentifiés peuvent utiliser les fonctions
 GRANT EXECUTE ON FUNCTION join_club_with_code TO authenticated;
+GRANT EXECUTE ON FUNCTION create_club_with_membership TO authenticated;
 GRANT EXECUTE ON FUNCTION get_club_changes_since TO authenticated;
 GRANT EXECUTE ON FUNCTION soft_delete_club TO authenticated;
 GRANT EXECUTE ON FUNCTION soft_delete_session TO authenticated;
