@@ -389,12 +389,8 @@ class DataService {
       try {
         // Upload each record using syncService
         for (const record of records) {
-<<<<<<< HEAD
           const { error } = await supabase.from('attendance').upsert(record);
           if (error) console.error('Sync error:', error);
-=======
-          await syncService.uploadToSupabase('attendance', record, 'INSERT');
->>>>>>> e906b1e (feat: Implement club sharing and joining features with authentication)
         }
       } catch (e) {
         console.info('Save locally, sync later');
