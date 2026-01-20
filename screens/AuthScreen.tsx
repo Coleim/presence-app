@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, redirectTo } from '../lib/supabase';
-import { authManager } from '../lib/authManager';
 import { dataService, User } from '../lib/dataService';
 import { useUser } from '../contexts/UserContext';
 import { theme } from '../lib/theme';
-import * as WebBrowser from 'expo-web-browser';
-
-// Nécessaire pour que le navigateur se ferme correctement
-WebBrowser.maybeCompleteAuthSession();
+import { signInWithOAuth, signOut } from '../lib/auth';
+import { authManager } from '../lib/authManager';
 
 const NEVER_ASK_AGAIN_KEY = '@presence_app:never_ask_login';
 
@@ -33,13 +29,20 @@ type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
 const AuthScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [neverAskAgain, setNeverAskAgain] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const { setUser } = useUser();
   const navigation = useNavigation<AuthScreenNavigationProp>();
 
   // Vérifier si l'utilisateur a déjà choisi "ne plus demander"
   useEffect(() => {
+    checkAuth();
     checkNeverAskAgain();
   }, []);
+
+  const checkAuth = async () => {
+    const isAuth = await authManager.isAuthenticated();
+    setIsAuthenticated(isAuth);
+  };
 
   const checkNeverAskAgain = async () => {
     try {
@@ -59,50 +62,24 @@ const AuthScreen: React.FC = () => {
   const signInWithGoogle = async (): Promise<void> => {
     try {
       setLoading(true);
-      
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-          skipBrowserRedirect: false,
-        },
-      });
-
-      if (error) {
-        Alert.alert('Erreur', error.message);
-        return;
-      }
-
-      if (data?.url) {
-        // Ouvrir le navigateur pour l'authentification
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectTo
-        );
-
-        if (result.type === 'success') {
-          // Manually check session after OAuth redirect
-          console.log('[AuthScreen] OAuth success, checking session...');
-          authManager.invalidateCache();
-          const session = await authManager.getSession();
-          
-          if (session?.user) {
-            console.log('[AuthScreen] User authenticated, navigating to Home');
-            await dataService.setUser(session.user);
-            setUser(session.user);
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Home' }],
-            });
-          } else {
-            Alert.alert('Erreur', 'Impossible de récupérer la session');
-          }
-        } else if (result.type === 'cancel') {
-          Alert.alert('Annulé', 'Connexion annulée');
-        }
-      }
+      await signInWithOAuth('google');
     } catch (error: any) {
       Alert.alert('Erreur', error.message || 'Une erreur est survenue');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async (): Promise<void> => {
+    try {
+      setLoading(true);
+      await signOut();
+      // Invalidate cache and update state
+      authManager.invalidateCache();
+      setIsAuthenticated(false);
+      Alert.alert('Succès', 'Déconnexion réussie');
+    } catch (error: any) {
+      Alert.alert('Erreur', error.message || 'Erreur lors de la déconnexion');
     } finally {
       setLoading(false);
     }
@@ -135,6 +112,9 @@ const AuthScreen: React.FC = () => {
     <View style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.title}>Bienvenue</Text>
+        <Text style={styles.authStatus}>
+          {isAuthenticated ? '🟢 Logged in' : '🔴 Offline'}
+        </Text>
         <Text style={styles.subtitle}>Connectez-vous pour synchroniser vos données</Text>
 
         <TouchableOpacity
@@ -150,6 +130,16 @@ const AuthScreen: React.FC = () => {
               {loading ? 'Connexion...' : 'Se connecter avec Google'}
             </Text>
           </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.signOutButton, loading && styles.buttonDisabled]}
+          onPress={handleSignOut}
+          disabled={loading}
+        >
+          <Text style={styles.signOutButtonText}>
+            Se déconnecter
+          </Text>
         </TouchableOpacity>
 
         <View style={styles.divider}>
@@ -197,6 +187,13 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
     textAlign: 'center',
     marginBottom: theme.space[3],
+  },
+  authStatus: {
+    fontSize: 16,
+    fontWeight: theme.typography.fontWeight.medium,
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+    marginBottom: theme.space[2],
   },
   subtitle: {
     fontSize: theme.typography.fontSize.md,
@@ -284,6 +281,18 @@ const styles = StyleSheet.create({
   },
   skipButtonText: {
     color: theme.colors.text.secondary,
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
+  },
+  signOutButton: {
+    backgroundColor: '#FF3B30',
+    borderRadius: theme.borderRadius.md,
+    padding: theme.space[4],
+    alignItems: 'center',
+    marginTop: theme.space[3],
+  },
+  signOutButtonText: {
+    color: '#FFFFFF',
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.medium,
   },

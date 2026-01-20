@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import * as AuthSession from 'expo-auth-session';
+import { makeRedirectUri } from 'expo-auth-session';
 
 // Configuration du redirect URL pour OAuth
-const redirectTo = AuthSession.makeRedirectUri({
-  scheme: 'app-presence',
+// Don't specify scheme - let Expo determine it automatically
+const redirectTo = makeRedirectUri({
   path: 'auth/callback'
 });
+
+console.log('[Supabase] 📍 Redirect URL configured:', redirectTo);
 
 
 // Check if Supabase is configured

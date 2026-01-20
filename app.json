@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "app-presence",
+    "name": "Cahier de Présence",
     "slug": "cahier-de-presence",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "scheme": "app-presence",
+    "scheme": "cahier",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
