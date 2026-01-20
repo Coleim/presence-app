@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, Image } from 'react-na
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, redirectTo, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, redirectTo } from '../lib/supabase';
 import { authManager } from '../lib/authManager';
 import { dataService, User } from '../lib/dataService';
 import { useUser } from '../contexts/UserContext';
@@ -57,11 +57,6 @@ const AuthScreen: React.FC = () => {
   // Auth state will be handled by the OAuth callback URL instead
 
   const signInWithGoogle = async (): Promise<void> => {
-    if (!isSupabaseConfigured) {
-      Alert.alert('Erreur', 'Mode hors ligne - OAuth non disponible');
-      return;
-    }
-
     try {
       setLoading(true);
       

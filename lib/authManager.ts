@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 import { Session } from '@supabase/supabase-js';
 
 /**
@@ -37,13 +37,7 @@ class AuthManager {
 
   private async _fetchSession(): Promise<Session | null> {
     try {
-      // Don't try to fetch if Supabase is not configured
-      if (!isSupabaseConfigured) {
-        console.log('[AuthManager] Supabase not configured, offline mode');
-        return null;
-      }
-
-      const { data, error } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
       if (error) {
         console.error('Auth session error:', error);
         return null;

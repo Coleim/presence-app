@@ -18,9 +18,6 @@ import StatsScreen from './screens/StatsScreen';
 import TestUtilsScreen from './screens/TestUtilsScreen';
 import JoinClubScreen from './screens/JoinClubScreen';
 import ShareClubScreen from './screens/ShareClubScreen';
-import { supabase } from './lib/supabase';
-import { authManager } from './lib/authManager';
-import { isSupabaseConfigured } from './lib/supabase';
 
 const NEVER_ASK_AGAIN_KEY = '@presence_app:never_ask_login';
 

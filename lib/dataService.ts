@@ -65,13 +65,6 @@ class DataService {
 
   checkOnline = async () => {
     try {
-      // Simple check if supabase is configured
-      if (!isSupabaseConfigured) {
-        console.log('[DataService] Supabase not configured, offline mode');
-        this.isOnline = false;
-        return;
-      }
-      
       // Try a simple query without auth
       await supabase.from('clubs').select('id').limit(0);
       this.isOnline = true;

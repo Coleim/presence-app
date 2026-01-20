@@ -8,17 +8,15 @@ const redirectTo = AuthSession.makeRedirectUri({
   path: 'auth/callback'
 });
 
+
 // Check if Supabase is configured
-const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] || '';
-const supabaseKey = process.env['EXPO_PUBLIC_SUPABASE_KEY'] || '';
-const isSupabaseConfigured = 
-  !!supabaseUrl && 
-  !!supabaseKey &&
-  supabaseUrl !== 'YOUR_SUPABASE_URL';
+
+const supabaseUrl = "https://hrnfqaquyxwyavhjhlrx.supabase.co"
+const supabasePublishableKey = "sb_publishable_md1N1lJxyQh_7Ov4WUhrxg_dcLK0dBn"
 
 const supabase = createClient(
   supabaseUrl,
-  supabaseKey,
+  supabasePublishableKey,
   {
     auth: {
       storage: AsyncStorage,
@@ -28,4 +26,4 @@ const supabase = createClient(
     },
   })
 
-export { supabase, redirectTo, isSupabaseConfigured };
+export { supabase, redirectTo };
