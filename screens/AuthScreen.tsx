@@ -78,7 +78,7 @@ const AuthScreen: React.FC = () => {
       if (session?.user) {
         console.log('[AuthScreen] ✅ OAuth successful, user:', session.user.email);
         await dataService.setUser(session.user);
-        await dataService.checkOnline(); // Check if online after login
+        dataService.checkOnline(); // Check if online after login (non-blocking)
         setUser(session.user);
         setIsAuthenticated(true);
         

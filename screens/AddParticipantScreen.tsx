@@ -36,14 +36,22 @@ export default function AddParticipantScreen({ route, navigation }) {
   };
 
   const addParticipant = async () => {
-    const participant = { club_id: clubId, first_name: firstName, last_name: lastName };
+    const participant = { 
+      club_id: clubId, 
+      first_name: firstName, 
+      last_name: lastName,
+      preferred_session_ids: selectedSessions // Include session assignments
+    };
+    
+    // Wait for local save (fast), cloud sync happens in background
     const savedParticipant = await dataService.saveParticipant(participant);
     
-    // Save preferred sessions
+    // Save participant_sessions mapping (wait for local save)
     if (selectedSessions.length > 0) {
       await dataService.saveParticipantSessions(savedParticipant.id, selectedSessions);
     }
     
+    // Navigate after local saves complete
     navigation.goBack();
   };
 

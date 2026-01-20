@@ -4,6 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProvider } from './contexts/UserContext';
+import { dataService } from './lib/dataService';
 import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
 import ClubListScreen from './screens/ClubListScreen';
@@ -46,6 +47,8 @@ function AppNavigator() {
 
   useEffect(() => {
     checkInitialRoute();
+    // Check online status in background (non-blocking)
+    dataService.checkOnline();
   }, []);
 
   const checkInitialRoute = async () => {

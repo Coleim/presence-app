@@ -42,7 +42,7 @@ export default function ClubListScreen({ navigation }) {
       </View>
 
       {/* Content */}
-      <View style={styles.container}>
+      <View style={styles.contentContainer}>
         <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
           <Text style={styles.buttonPrimaryText}>Créer un club</Text>
         </TouchableOpacity>
@@ -102,6 +102,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  contentContainer: {
+    flex: 1,
     padding: theme.space[4],
   },
   buttonPrimary: theme.components.buttonPrimary,

@@ -65,7 +65,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
   };
 
   const fetchParticipants = async () => {
-    const data = await dataService.getParticipants(club.id);
+    const data = await dataService.getParticipantsWithSessions(club.id);
     
     // Sort participants alphabetically by last name, then first name
     const sortedData = [...data].sort((a, b) => {
@@ -89,7 +89,10 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
-            await dataService.deleteClub(club.id);
+            dataService.checkOnline();
+            // Delete in background
+            dataService.deleteClub(club.id);
+            // Navigate immediately
             navigation.goBack();
           }
         }
@@ -107,9 +110,10 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
+            // Wait for local delete to complete
             await dataService.deleteSession(sessionId);
-            await syncService.syncNow(); // Sync immediately
-            fetchSessions(); // Refresh list
+            // Refresh list after delete completes
+            fetchSessions();
           }
         }
       ]
@@ -155,7 +159,9 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
       return;
     }
     
+    // Wait for local save (fast), cloud sync happens in background
     await dataService.saveClub({ ...club, name: editedName.trim() });
+    // Update UI after local save completes
     navigation.setParams({ club: { ...club, name: editedName.trim() } });
     setIsEditingName(false);
   };
@@ -417,17 +423,21 @@ const styles = StyleSheet.create({
     gap: theme.space[3],
     marginBottom: theme.space[6],
   },
+  adminContainer: {
+    marginTop: theme.space[5],
+    marginBottom: theme.space[3],
+  },
   buttonOutline: {
     borderWidth: 1,
     borderColor: theme.colors.primary[700],
     borderRadius: theme.borderRadius.md,
-    paddingVertical: theme.space[3],
-    paddingHorizontal: theme.space[4],
+    paddingVertical: theme.space[2],
+    paddingHorizontal: theme.space[3],
     alignItems: 'center',
   },
   buttonOutlineText: {
     color: theme.colors.primary[700],
-    fontSize: theme.typography.fontSize.md,
+    fontSize: theme.typography.fontSize.sm,
     fontWeight: theme.typography.fontWeight.medium,
   },
   buttonPrimary: theme.components.buttonPrimary,

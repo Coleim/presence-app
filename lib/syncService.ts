@@ -262,16 +262,30 @@ class SyncService {
               if (serverSession) {
                 uploadedSessionIds.add(serverSession.id); // Track this ID
                 if (isLocal) {
+                  const oldId = session.id;
+                  const newId = serverSession.id;
+                  
                   // Update local session with server ID immediately
                   const allSessions = await AsyncStorage.getItem('@presence_app:sessions');
                   const sessionsList = allSessions ? JSON.parse(allSessions) : [];
                   const updatedSessions = sessionsList.map((s: any) => 
-                    s.id === session.id ? { ...s, id: serverSession.id } : s
+                    s.id === oldId ? { ...s, id: newId } : s
                   );
                   await AsyncStorage.setItem('@presence_app:sessions', JSON.stringify(updatedSessions));
+                  
+                  // Update participant_sessions to use the new session ID
+                  const localPS = await AsyncStorage.getItem('@presence_app:participant_sessions');
+                  if (localPS) {
+                    const participantSessionsList = JSON.parse(localPS);
+                    const updatedPS = participantSessionsList.map((ps: any) => 
+                      ps.session_id === oldId ? { ...ps, session_id: newId } : ps
+                    );
+                    await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPS));
+                  }
+                  
                   // Update the session object too so subsequent operations use the new ID
-                  session.id = serverSession.id;
-                  console.log(`[SyncService] ✅ Session uploaded: ${session.day_of_week} ${session.start_time}-${session.end_time}`);
+                  session.id = newId;
+                  console.log(`[SyncService] ✅ Session uploaded: ${session.day_of_week} ${session.start_time}-${session.end_time} (${oldId} → ${newId})`);
                 }
               }
             } catch (err) {
@@ -310,21 +324,210 @@ class SyncService {
           for (const participant of localParticipants) {
             try {
               const isLocal = participant.id.startsWith('local-');
+              console.log(`[SyncService] Uploading participant ${participant.id} (${participant.first_name} ${participant.last_name}) - isLocal: ${isLocal}`);
               const serverParticipant = await this.uploadToSupabase('participants', participant, isLocal ? 'INSERT' : 'UPDATE');
-              if (serverParticipant && isLocal) {
-                // Update local participant with server ID immediately
-                const allParticipants = await AsyncStorage.getItem('@presence_app:participants');
-                const participantsList = allParticipants ? JSON.parse(allParticipants) : [];
-                const updatedParticipants = participantsList.map((p: any) => 
-                  p.id === participant.id ? { ...p, id: serverParticipant.id } : p
-                );
-                await AsyncStorage.setItem('@presence_app:participants', JSON.stringify(updatedParticipants));
-                // Update the participant object too so subsequent operations use the new ID
-                participant.id = serverParticipant.id;
-                console.log(`[SyncService] ✅ Participant uploaded: ${participant.first_name} ${participant.last_name}`);
+              if (serverParticipant) {
+                uploadedParticipantIds.add(serverParticipant.id); // Track this ID
+                if (isLocal) {
+                  const oldId = participant.id;
+                  const newId = serverParticipant.id;
+                  
+                  // Update local participant with server ID immediately
+                  const allParticipants = await AsyncStorage.getItem('@presence_app:participants');
+                  const participantsList = allParticipants ? JSON.parse(allParticipants) : [];
+                  const updatedParticipants = participantsList.map((p: any) => 
+                    p.id === oldId ? { ...p, id: newId } : p
+                  );
+                  await AsyncStorage.setItem('@presence_app:participants', JSON.stringify(updatedParticipants));
+                  
+                  // Update participant_sessions to use the new participant ID
+                  const localPS = await AsyncStorage.getItem('@presence_app:participant_sessions');
+                  if (localPS) {
+                    const participantSessionsList = JSON.parse(localPS);
+                    const updatedPS = participantSessionsList.map((ps: any) => 
+                      ps.participant_id === oldId ? { ...ps, participant_id: newId } : ps
+                    );
+                    await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPS));
+                  }
+                  
+                  // Update the participant object too so subsequent operations use the new ID
+                  participant.id = newId;
+                  console.log(`[SyncService] ✅ Participant uploaded: ${participant.first_name} ${participant.last_name} (${oldId} → ${newId})`);
+                }
               }
             } catch (err) {
-              console.error('[SyncService] Failed to upload participant:', err);
+              console.error('[SyncService] Failed to upload participant:', participant.id, participant.first_name, participant.last_name, err);
+            }
+          }
+        }
+        
+        // === PARTICIPANT_SESSIONS SYNC ===
+        // Sync enrollment (which participants are enrolled in which sessions)
+        if (localParticipants.length > 0) {
+          const localPS = await AsyncStorage.getItem('@presence_app:participant_sessions');
+          const participantSessionsList = localPS ? JSON.parse(localPS) : [];
+          
+          // Filter to only this club's participant_sessions
+          const clubParticipantIds = new Set(localParticipants.map(p => p.id));
+          const clubParticipantSessions = participantSessionsList.filter((ps: any) => 
+            clubParticipantIds.has(ps.participant_id)
+          );
+          
+          if (clubParticipantSessions.length > 0) {
+            console.log(`[SyncService] Syncing ${clubParticipantSessions.length} participant enrollments for club ${club.id}`);
+            
+            // Get existing server enrollments for these participants
+            const { data: serverPS } = await supabase
+              .from('participant_sessions')
+              .select('id, participant_id, session_id')
+              .in('participant_id', Array.from(clubParticipantIds));
+            
+            const serverPSSet = new Set(
+              (serverPS || []).map((ps: any) => `${ps.participant_id}-${ps.session_id}`)
+            );
+            const localPSSet = new Set(
+              clubParticipantSessions.map((ps: any) => `${ps.participant_id}-${ps.session_id}`)
+            );
+            
+            // Delete enrollments that exist on server but not locally
+            if (serverPS) {
+              for (const ps of serverPS) {
+                const key = `${ps.participant_id}-${ps.session_id}`;
+                if (!localPSSet.has(key)) {
+                  try {
+                    await supabase.from('participant_sessions').delete().eq('id', ps.id);
+                    console.log(`[SyncService] Deleted enrollment from server: ${key}`);
+                  } catch (err) {
+                    console.error('[SyncService] Failed to delete enrollment:', err);
+                  }
+                }
+              }
+            }
+            
+            // Add enrollments that exist locally but not on server
+            for (const ps of clubParticipantSessions) {
+              const key = `${ps.participant_id}-${ps.session_id}`;
+              if (!serverPSSet.has(key)) {
+                // Skip if either ID starts with "local-" (not yet synced to server)
+                if (ps.participant_id.startsWith('local-') || ps.session_id.startsWith('local-')) {
+                  console.log(`[SyncService] Skipping enrollment with local ID: ${key}`);
+                  continue;
+                }
+                
+                try {
+                  console.log(`[SyncService] Uploading enrollment: participant=${ps.participant_id}, session=${ps.session_id}`);
+                  await supabase.from('participant_sessions').insert({
+                    participant_id: ps.participant_id,
+                    session_id: ps.session_id
+                  });
+                  console.log(`[SyncService] ✅ Enrollment uploaded: ${key}`);
+                } catch (err) {
+                  console.error('[SyncService] Failed to upload enrollment:', key, err);
+                }
+              }
+            }
+          }
+        }
+        
+        // === ATTENDANCE SYNC ===
+        // Upload local attendance records to server
+        const localAttendance = await AsyncStorage.getItem('@presence_app:attendance');
+        const attendanceList = localAttendance ? JSON.parse(localAttendance) : [];
+        
+        // Filter to only this club's attendance (based on session_id)
+        const clubSessionIds = new Set(localSessions.map(s => s.id));
+        const clubAttendance = attendanceList.filter((a: any) => clubSessionIds.has(a.session_id));
+        
+        if (clubAttendance.length > 0) {
+          console.log(`[SyncService] Syncing ${clubAttendance.length} attendance records for club ${club.id}`);
+          
+          // Get existing server attendance for these sessions
+          const { data: serverAttendance } = await supabase
+            .from('attendance')
+            .select('id, participant_id, session_id, date, present')
+            .in('session_id', Array.from(clubSessionIds));
+          
+          const serverAttendanceSet = new Set(
+            (serverAttendance || []).map((a: any) => `${a.participant_id}-${a.session_id}-${a.date}`)
+          );
+          const localAttendanceSet = new Set(
+            clubAttendance.map((a: any) => `${a.participant_id}-${a.session_id}-${a.date}`)
+          );
+          
+          // Delete attendance records that exist on server but not locally
+          if (serverAttendance) {
+            for (const a of serverAttendance) {
+              const key = `${a.participant_id}-${a.session_id}-${a.date}`;
+              if (!localAttendanceSet.has(key)) {
+                try {
+                  await supabase.from('attendance').delete().eq('id', a.id);
+                  console.log(`[SyncService] Deleted attendance from server: ${key}`);
+                } catch (err) {
+                  console.error('[SyncService] Failed to delete attendance:', err);
+                }
+              }
+            }
+          }
+          
+          // Add/update attendance records that exist locally but not on server or have changed
+          for (const a of clubAttendance) {
+            const key = `${a.participant_id}-${a.session_id}-${a.date}`;
+            
+            // Skip if either ID starts with "local-" (not yet synced to server)
+            if (a.participant_id?.startsWith('local-') || a.session_id?.startsWith('local-')) {
+              console.log(`[SyncService] Skipping attendance with local ID: ${key}`);
+              continue;
+            }
+            
+            const serverRecord = serverAttendance?.find((sa: any) => 
+              sa.participant_id === a.participant_id && 
+              sa.session_id === a.session_id && 
+              sa.date === a.date
+            );
+            
+            try {
+              if (!serverRecord) {
+                // Insert new attendance (convert status to present boolean)
+                const attendanceData = {
+                  participant_id: a.participant_id,
+                  session_id: a.session_id,
+                  date: a.date,
+                  present: a.status === 'present' // Convert status text to boolean
+                };
+                
+                console.log(`[SyncService] Uploading attendance: ${key}`);
+                console.log('[SyncService] Cleaned attendance data to send:', attendanceData);
+                
+                // Validate all fields are present
+                if (!attendanceData.participant_id || !attendanceData.session_id || !attendanceData.date || attendanceData.present === undefined) {
+                  console.error('[SyncService] Invalid attendance data - missing required fields:', attendanceData);
+                  continue;
+                }
+                
+                const { data: inserted, error } = await supabase
+                  .from('attendance')
+                  .insert(attendanceData)
+                  .select();
+                  
+                if (error) {
+                  console.error(`[SyncService] Supabase error details:`, JSON.stringify(error));
+                  throw error;
+                }
+                console.log(`[SyncService] ✅ Attendance uploaded: ${key}`, inserted);
+              } else if (serverRecord.present !== (a.status === 'present')) {
+                // Update existing attendance if status changed (compare boolean to converted status)
+                console.log(`[SyncService] Updating attendance: ${key} present=${serverRecord.present} → ${a.status === 'present'}`);
+                const { error } = await supabase.from('attendance').update({
+                  present: a.status === 'present'
+                }).eq('id', serverRecord.id);
+                if (error) {
+                  console.error(`[SyncService] Error updating attendance:`, error);
+                  throw error;
+                }
+                console.log(`[SyncService] ✅ Attendance updated: ${key}`);
+              }
+            } catch (err) {
+              console.error('[SyncService] Failed to sync attendance:', key, err);
             }
           }
         }
@@ -520,13 +723,18 @@ class SyncService {
           .delete()
           .eq('id', record.id)
           .select()
-          .single();
+          .maybeSingle(); // Use maybeSingle() instead of single() to allow 0 results
         
         if (error) {
           console.error(`[SyncService] Delete error:`, error);
           throw error;
         }
-        console.log(`[SyncService] ✅ Deleted ${table}:`, record.id);
+        
+        if (!data) {
+          console.log(`[SyncService] Record already deleted from server: ${record.id}`);
+        } else {
+          console.log(`[SyncService] ✅ Deleted ${table}:`, record.id);
+        }
         return data;
       } else if (operation === 'INSERT' || operation === 'UPDATE') {
         // Prepare record for upload (remove local-only fields and map to new schema)
@@ -546,7 +754,7 @@ class SyncService {
           
           const { data, error } = await supabase
             .from(table)
-            .upsert(mappedRecord)
+            .upsert(mappedRecord, { onConflict: 'id' })
             .select()
             .single();
           
@@ -567,7 +775,7 @@ class SyncService {
           
           const { data, error } = await supabase
             .from(table)
-            .upsert(mappedRecord)
+            .upsert(mappedRecord, { onConflict: 'id' })
             .select()
             .single();
           
@@ -590,7 +798,7 @@ class SyncService {
           
           const { data, error } = await supabase
             .from(table)
-            .upsert(mappedRecord)
+            .upsert(mappedRecord, { onConflict: 'id' })
             .select()
             .single();
           

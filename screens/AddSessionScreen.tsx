@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView }
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { dataService } from '../lib/dataService';
-import { syncService } from '../lib/syncService';
 import { theme } from '../lib/theme';
 
 export default function AddSessionScreen({ route, navigation }) {
@@ -35,9 +34,10 @@ export default function AddSessionScreen({ route, navigation }) {
   const addSession = async () => {
     try {
       const session = { club_id: clubId, day_of_week: day, start_time: formatTime(startTime), end_time: formatTime(endTime) };
+      // Wait for local save (fast), cloud sync happens in background
       await dataService.saveSession(session);
-      await syncService.syncNow(); // Sync immediately
-      navigation.goBack(); // Close modal and return to ClubDetails
+      // Navigate after local save completes
+      navigation.goBack();
     } catch (error) {
       console.error('Error adding session:', error);
       Alert.alert('Failed to add session', 'Please try again.');

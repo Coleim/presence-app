@@ -17,8 +17,10 @@ export default function CreateClubScreen({ navigation }) {
         name: name.trim(),
         description: description.trim(),
       };
+      // Wait for local save (fast), cloud sync happens in background
       await dataService.saveClub(club);
-      navigation.goBack(); // Close modal and return to ClubList
+      // Navigate after local save completes
+      navigation.goBack();
     } catch (error) {
       alert('Error creating club: ' + error.message);
     }

@@ -54,11 +54,11 @@ export default function EditParticipantScreen({ route, navigation }: any) {
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       is_long_term_sick: isLongTermSick,
+      preferred_session_ids: selectedSessions // Include session assignments
     };
 
+    // Wait for local saves (fast), cloud sync happens in background
     await dataService.saveParticipant(updatedParticipant);
-    
-    // Save session assignments
     await dataService.saveParticipantSessions(participant.id, selectedSessions);
 
     Alert.alert('Succès', 'Le participant a été modifié.');
@@ -175,7 +175,8 @@ const styles = StyleSheet.create({
   headerContainer: {
     position: 'relative',
     backgroundColor: theme.colors.primary[900],
-    padding: theme.space[4],
+    paddingHorizontal: theme.space[4],
+    paddingVertical: theme.space[3],
     paddingBottom: theme.space[2],
   },
   smallBackButton: {
@@ -190,14 +191,13 @@ const styles = StyleSheet.create({
     fontWeight: theme.typography.fontWeight.medium,
   },
   mainHeader: {
-    flex: 1,
     alignItems: 'center',
   },
   headerTitle: {
+    textAlign: 'center',
     fontSize: theme.typography.fontSize.lg,
     fontWeight: theme.typography.fontWeight.semibold,
     color: '#FFFFFF',
-    marginBottom: theme.space[1],
   },
   content: {
     flex: 1,

@@ -17,16 +17,20 @@ export default function HomeScreen({ navigation }: any) {
     console.log('[HomeScreen] Component mounted');
     checkAuth();
     fetchData();
-  }, []);
+  }, []); // Only run once on mount
 
   useEffect(() => {
     console.log('[HomeScreen] Adding focus listener');
     const unsubscribe = navigation.addListener('focus', () => {
       console.log('[HomeScreen] Screen focused, fetching data');
       fetchData();
+      // Always refetch sessions to update attendance counts
+      if (selectedClub) {
+        fetchSessionsForClub(selectedClub);
+      }
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, selectedClub]); // Include selectedClub to refetch sessions
 
   // Start auto-sync when authenticated
   useEffect(() => {
@@ -66,6 +70,7 @@ export default function HomeScreen({ navigation }: any) {
   };
 
   const fetchData = async () => {
+    // Get local data immediately - no waiting for cloud
     const clubsData = await dataService.getClubs();
     setClubs(clubsData);
 
@@ -75,19 +80,29 @@ export default function HomeScreen({ navigation }: any) {
       return;
     }
 
-    // If no club selected or selected club doesn't exist, select first one
-    // If club exists, refresh it with latest data (including stats_reset_date)
+    // Determine which club to use
     let clubToUse = selectedClub;
+    let shouldUpdateState = false;
+    
     if (!selectedClub || !clubsData.find(c => c.id === selectedClub.id)) {
+      // No club selected or selected club doesn't exist - select first one
       clubToUse = clubsData[0];
-      setSelectedClub(clubsData[0]);
+      shouldUpdateState = true;
     } else {
-      // Refresh selected club with latest data
+      // Refresh with latest data
       const refreshedClub = clubsData.find(c => c.id === selectedClub.id);
       if (refreshedClub) {
         clubToUse = refreshedClub;
-        setSelectedClub(refreshedClub);
+        // Only update state if data actually changed
+        if (JSON.stringify(refreshedClub) !== JSON.stringify(selectedClub)) {
+          shouldUpdateState = true;
+        }
       }
+    }
+    
+    // Update state only if needed
+    if (shouldUpdateState) {
+      setSelectedClub(clubToUse);
     }
 
     // Fetch sessions for selected club
@@ -99,7 +114,7 @@ export default function HomeScreen({ navigation }: any) {
     const sessions = await dataService.getSessions(club.id);
     console.log('[HomeScreen] Found sessions:', sessions.length, sessions);
     const now = new Date();
-    const upcoming = [];
+    const upcomingBasic = [];
     const weeksToGenerate = 4; // Generate 4 weeks of sessions
 
     // Helper to get day index, handling both French and English
@@ -114,6 +129,7 @@ export default function HomeScreen({ navigation }: any) {
       return index;
     };
 
+    // First pass: generate all upcoming sessions without counts
     for (const session of sessions) {
       const dayIndex = getDayIndex(session.day_of_week);      
       if (dayIndex === -1) {
@@ -170,19 +186,37 @@ export default function HomeScreen({ navigation }: any) {
           displayDate = displayDate.charAt(0).toUpperCase() + displayDate.slice(1);
         }
         
-        const presentCount = await getPresentCount(session, nextDate.toISOString().split('T')[0]);
-        const assignedCount = await getAssignedCount(session);
-        upcoming.push({ ...session, club, date: nextDate.toISOString().split('T')[0], displayDate, dateObj: nextDate, presentCount, assignedCount });
+        upcomingBasic.push({ 
+          ...session, 
+          club, 
+          date: nextDate.toISOString().split('T')[0], 
+          displayDate, 
+          dateObj: nextDate 
+        });
       }
     }
 
     // Sort by date and time
-    upcoming.sort((a, b) => {
+    upcomingBasic.sort((a, b) => {
       if (a.dateObj.getTime() !== b.dateObj.getTime()) return a.dateObj.getTime() - b.dateObj.getTime();
       return a.start_time.localeCompare(b.start_time);
     });
 
-    setUpcomingSessions(upcoming.slice(0, 10)); // Show next 10
+    // Take top 10
+    const top10 = upcomingBasic.slice(0, 10);
+
+    // Second pass: fetch all counts in parallel
+    const upcomingWithCounts = await Promise.all(
+      top10.map(async (session) => {
+        const [presentCount, assignedCount] = await Promise.all([
+          getPresentCount(session, session.date),
+          getAssignedCount(session)
+        ]);
+        return { ...session, presentCount, assignedCount };
+      })
+    );
+
+    setUpcomingSessions(upcomingWithCounts);
   };
 
   const getPresentCount = async (session: any, date: any) => {
@@ -257,9 +291,11 @@ export default function HomeScreen({ navigation }: any) {
           </View>
           <Text style={styles.clubName}>{selectedClub?.name}</Text>
           {isAuthenticated && syncStatus && (
-            <Text style={styles.syncStatus}>
-              {syncStatus}
-            </Text>
+            <TouchableOpacity onPress={() => syncService.syncNow()}>
+              <Text style={styles.syncStatus}>
+                {syncStatus}
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
         {clubs.length <= 1 && <View style={styles.headerSpacer} />}
@@ -296,6 +332,7 @@ export default function HomeScreen({ navigation }: any) {
                 onPress={() => {
                   if (isActive) {
                     const { dateObj, ...sessionWithoutDate } = item;
+                    console.log('[HomeScreen] Navigating to Attendance with date:', item.date, 'session:', item.id);
                     navigation.navigate('Attendance', { 
                       session: sessionWithoutDate, 
                       date: item.date
@@ -330,7 +367,16 @@ export default function HomeScreen({ navigation }: any) {
         />
 
         <View style={styles.manageButtonContainer}>
-          <TouchableOpacity style={styles.manageClubButton} onPress={() => navigation.navigate('ClubList')}>
+          <TouchableOpacity 
+            style={styles.manageClubButton} 
+            onPress={() => {
+              if (clubs.length === 1) {
+                navigation.navigate('ClubDetails', { club: clubs[0] });
+              } else {
+                navigation.navigate('ClubList');
+              }
+            }}
+          >
             <Text style={styles.manageClubButtonText}>Gérer le club</Text>
           </TouchableOpacity>
         </View>

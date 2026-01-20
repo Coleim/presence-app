@@ -6,6 +6,7 @@ import { theme } from '../lib/theme';
 
 export default function AttendanceScreen({ route, navigation }: any) {
   const { session, date } = route.params;
+  console.log('[AttendanceScreen] Received params - session.id:', session?.id, 'date:', date);
   const [participants, setParticipants] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any>({});
 
@@ -56,7 +57,12 @@ export default function AttendanceScreen({ route, navigation }: any) {
       date,
       status: attendance[pid] ? 'present' : 'absent'
     }));
+    console.log('[AttendanceScreen] Saving attendance - date:', date, 'records:', records.length);
+    console.log('[AttendanceScreen] First record:', JSON.stringify(records[0]));
+    dataService.checkOnline();
+    // Wait for local save (fast), cloud sync happens in background
     await dataService.saveAttendance(records);
+    // Navigate after local save completes
     navigation.goBack();
   };
 

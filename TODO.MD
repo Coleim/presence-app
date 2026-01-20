@@ -1,11 +1,10 @@
 
 Sync a faire:
-1 - club
-2 - creation de session (empecher de creer un participant si on a pas de session)
-3 - creer un participant
-4 - update un participant
 
-5 - marquer la presence
+7- partager le club avec quelqu'un
+
+6- Tout le monde peut ajouter des participants , mais seul le owner peut supprimer un participant (ne pas proposer le popup dans l'app)
+7- seul le owner peut ajouter des sessions , supprimer le club et partager le club. Si pas owner on ne le voit pas
 
 
 À venir :
