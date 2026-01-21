@@ -1,5 +1,6 @@
 import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, redirectTo } from './supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -10,6 +11,9 @@ export async function signInWithOAuth(provider: 'google' | 'github') {
     options: {
       redirectTo: redirectTo,
       skipBrowserRedirect: true,
+      queryParams: {
+        prompt: 'select_account', // Force account selection for Google
+      },
     },
   });
 
@@ -47,5 +51,18 @@ export async function signOut() {
     console.error("No session to sign out")
     return;
   }
+  
+  // Clear all local data
+  await AsyncStorage.multiRemove([
+    '@presence_app:clubs',
+    '@presence_app:sessions',
+    '@presence_app:participants',
+    '@presence_app:participant_sessions',
+    '@presence_app:attendance',
+    '@presence_app:user',
+    '@presence_app:never_ask_login',
+    'last_sync_timestamp',
+  ]);
+  
   return supabase.auth.signOut();
 }

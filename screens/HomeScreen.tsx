@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
@@ -11,7 +11,9 @@ export default function HomeScreen({ navigation }: any) {
   const [selectedClub, setSelectedClub] = useState<any>(null);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const wasSyncingRef = useRef(false);
 
   useEffect(() => {
     console.log('[HomeScreen] Component mounted');
@@ -43,11 +45,21 @@ export default function HomeScreen({ navigation }: any) {
       
       // Subscribe to sync status
       unsubscribe = syncService.onSyncStatusChange((status) => {
+        const wasSyncing = wasSyncingRef.current;
+        wasSyncingRef.current = status.isSyncing;
+        setIsSyncing(status.isSyncing);
+        
         if (status.isSyncing) {
           setSyncStatus('Synchronisation...');
         } else if (status.lastSync) {
           const minutes = Math.floor((Date.now() - status.lastSync.getTime()) / 60000);
           setSyncStatus(minutes === 0 ? 'Synchronisé' : `Sync il y a ${minutes}min`);
+          
+          // Refresh data when sync completes
+          if (wasSyncing && !status.isSyncing) {
+            console.log('[HomeScreen] Sync completed, refreshing data');
+            fetchData();
+          }
         }
       });
     } else {
@@ -112,7 +124,16 @@ export default function HomeScreen({ navigation }: any) {
   const fetchSessionsForClub = async (club: any) => {
     console.log('[HomeScreen] Fetching sessions for club:', club.id, club.name);
     const sessions = await dataService.getSessions(club.id);
-    console.log('[HomeScreen] Found sessions:', sessions.length, sessions);
+    console.log('[HomeScreen] Found sessions:', sessions.length);
+    sessions.forEach((session, idx) => {
+      console.log(`[HomeScreen] Session ${idx + 1}:`);
+      console.log(`  - id: ${session.id}`);
+      console.log(`  - day_of_week: ${session.day_of_week}`);
+      console.log(`  - start_time: ${session.start_time}`);
+      console.log(`  - end_time: ${session.end_time}`);
+      console.log(`  - created_at: ${session.created_at}`);
+      console.log(`  - updated_at: ${session.updated_at}`);
+    });
     const now = new Date();
     const upcomingBasic = [];
     const weeksToGenerate = 4; // Generate 4 weeks of sessions
@@ -257,18 +278,26 @@ export default function HomeScreen({ navigation }: any) {
             <Text style={styles.title}>Aucun club pour le moment</Text>
             <Text style={styles.subtitle}>Créez votre premier club !</Text>
             <View style={styles.buttonContainer}>
-              <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
+              <TouchableOpacity 
+                style={[styles.buttonPrimary, isSyncing && styles.buttonDisabled]} 
+                onPress={() => navigation.navigate('CreateClub')}
+                disabled={isSyncing}
+              >
                 <Text style={styles.buttonPrimaryText}>Créer un club</Text>
               </TouchableOpacity>
               {isAuthenticated && (
                 <TouchableOpacity 
-                  style={[styles.buttonSecondary, { marginTop: 12 }]} 
+                  style={[styles.buttonSecondary, { marginTop: 12 }, isSyncing && styles.buttonDisabled]} 
                   onPress={() => navigation.navigate('JoinClub')}
+                  disabled={isSyncing}
                 >
                   <Text style={styles.buttonSecondaryText}>Rejoindre un club</Text>
                 </TouchableOpacity>
               )}
             </View>
+            {isSyncing && (
+              <Text style={styles.syncingText}>Synchronisation en cours...</Text>
+            )}
           </View>
       </View>
     );
@@ -554,5 +583,14 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 4,
     textAlign: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  syncingText: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginTop: theme.space[3],
   },
 });

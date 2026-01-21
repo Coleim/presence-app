@@ -147,6 +147,93 @@ class DataService {
         updated_at: clubData.updated_at
       };
 
+      // Add user as a club member in the database
+      const { error: memberError } = await supabase
+        .from('club_members')
+        .insert({
+          club_id: club.id,
+          user_id: (await supabase.auth.getSession()).data.session?.user.id
+        })
+        .select()
+        .single();
+
+      if (memberError) {
+        // Ignore duplicate key errors (user already a member)
+        if (memberError.code !== '23505') {
+          console.error('[DataService] Error adding club membership:', memberError);
+        } else {
+          console.log('[DataService] User already a member of this club');
+        }
+      } else {
+        console.log('[DataService] User added as club member');
+      }
+
+      // Download all club data immediately
+      console.log('[DataService] Downloading club data...');
+      
+      // Download sessions
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('club_id', club.id);
+      
+      if (sessionsError) {
+        console.error('[DataService] Error downloading sessions:', sessionsError);
+      } else if (sessions && sessions.length > 0) {
+        const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
+        const existingSessions = allSessions ? JSON.parse(allSessions) : [];
+        const merged = [...existingSessions, ...sessions];
+        await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(merged));
+        console.log(`[DataService] Downloaded ${sessions.length} sessions`);
+      } else {
+        console.log('[DataService] No sessions found for this club');
+      }
+      
+      // Download participants
+      const { data: participants, error: participantsError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('club_id', club.id);
+      
+      if (participants && participants.length > 0) {
+        const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
+        const existingParticipants = allParticipants ? JSON.parse(allParticipants) : [];
+        const merged = [...existingParticipants, ...participants];
+        await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(merged));
+        console.log(`[DataService] Downloaded ${participants.length} participants`);
+      }
+      
+      // Download attendance
+      const { data: attendance } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('club_id', club.id);
+      
+      if (attendance && attendance.length > 0) {
+        const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
+        const existingAttendance = allAttendance ? JSON.parse(allAttendance) : [];
+        const merged = [...existingAttendance, ...attendance];
+        await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(merged));
+        console.log(`[DataService] Downloaded ${attendance.length} attendance records`);
+      }
+      
+      // Download participant_sessions
+      if (sessions && sessions.length > 0) {
+        const sessionIds = sessions.map(s => s.id);
+        const { data: participantSessions } = await supabase
+          .from('participant_sessions')
+          .select('*')
+          .in('session_id', sessionIds);
+        
+        if (participantSessions && participantSessions.length > 0) {
+          const allPS = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
+          const existingPS = allPS ? JSON.parse(allPS) : [];
+          const merged = [...existingPS, ...participantSessions];
+          await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(merged));
+          console.log(`[DataService] Downloaded ${participantSessions.length} participant-session links`);
+        }
+      }
+
       // Save club locally
       const clubs = await this.getClubs();
       const existingIndex = clubs.findIndex(c => c.id === club.id);

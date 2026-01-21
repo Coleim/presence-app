@@ -78,7 +78,76 @@ class SyncService {
       const lastSync = await this.getLastSyncTime();
       const since = lastSync || new Date(Date.now() - 24 * 60 * 60 * 1000); // Last 24h if first sync
 
-      // First, upload any local-only clubs (created while offline)
+      // First, download all clubs from server that user has access to
+      console.log('[SyncService] Downloading clubs from server...');
+      const { data: serverClubs, error: clubsError } = await supabase
+        .from('clubs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (clubsError) {
+        console.error('[SyncService] Error fetching clubs:', clubsError);
+      } else if (serverClubs && serverClubs.length > 0) {
+        console.log(`[SyncService] Found ${serverClubs.length} clubs on server`);
+        
+        // Merge with local clubs
+        const localClubs = await dataService.getClubs();
+        const localClubIds = new Set(localClubs.map(c => c.id));
+        
+        // Add clubs from server that don't exist locally
+        const clubsToAdd = serverClubs.filter(sc => !localClubIds.has(sc.id));
+        if (clubsToAdd.length > 0) {
+          console.log(`[SyncService] Adding ${clubsToAdd.length} new clubs from server`);
+          const allClubs = [...localClubs, ...clubsToAdd];
+          await AsyncStorage.setItem('@presence_app:clubs', JSON.stringify(allClubs));
+          
+          // Download sessions, participants, and attendance for new clubs
+          for (const club of clubsToAdd) {
+            console.log(`[SyncService] Downloading data for club: ${club.name}`);
+            
+            // Download sessions
+            const { data: sessions } = await supabase
+              .from('sessions')
+              .select('*')
+              .eq('club_id', club.id);
+            
+            if (sessions && sessions.length > 0) {
+              console.log(`[SyncService] Downloaded ${sessions.length} sessions`);
+              const allSessions = await AsyncStorage.getItem('@presence_app:sessions');
+              const existingSessions = allSessions ? JSON.parse(allSessions) : [];
+              await AsyncStorage.setItem('@presence_app:sessions', JSON.stringify([...existingSessions, ...sessions]));
+            }
+            
+            // Download participants
+            const { data: participants } = await supabase
+              .from('participants')
+              .select('*')
+              .eq('club_id', club.id);
+            
+            if (participants && participants.length > 0) {
+              console.log(`[SyncService] Downloaded ${participants.length} participants`);
+              const allParticipants = await AsyncStorage.getItem('@presence_app:participants');
+              const existingParticipants = allParticipants ? JSON.parse(allParticipants) : [];
+              await AsyncStorage.setItem('@presence_app:participants', JSON.stringify([...existingParticipants, ...participants]));
+            }
+            
+            // Download attendance
+            const { data: attendance } = await supabase
+              .from('attendance')
+              .select('*')
+              .eq('club_id', club.id);
+            
+            if (attendance && attendance.length > 0) {
+              console.log(`[SyncService] Downloaded ${attendance.length} attendance records`);
+              const allAttendance = await AsyncStorage.getItem('@presence_app:attendance');
+              const existingAttendance = allAttendance ? JSON.parse(allAttendance) : [];
+              await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify([...existingAttendance, ...attendance]));
+            }
+          }
+        }
+      }
+
+      // Then, upload any local-only clubs (created while offline)
       const localClubs = await dataService.getClubs();
       for (const club of localClubs) {
         if (club.id.startsWith('local-')) {
@@ -118,6 +187,22 @@ class SyncService {
                 throw new Error('No club returned from insert');
               }
               serverClub = newClub;
+              
+              // Add owner as a club member
+              const { error: memberError } = await supabase
+                .from('club_members')
+                .insert({
+                  club_id: serverClub.id,
+                  user_id: session.user.id
+                })
+                .select()
+                .single();
+              
+              if (memberError) {
+                console.error('[SyncService] Warning: Could not add owner as club member:', memberError);
+              } else {
+                console.log('[SyncService] Owner added as club member');
+              }
             }
             
             // Update local club ID and save via dataService
@@ -210,13 +295,17 @@ class SyncService {
             console.error('[SyncService] Failed to upload local club:', error);
           }
         } else {
-          // Upload updates for existing clubs (with server IDs)
-          console.log('[SyncService] Uploading club update:', club.name);
-          try {
-            await this.uploadToSupabase('clubs', club, 'UPDATE');
-            console.log('[SyncService] ✅ Club updated on server:', club.name);
-          } catch (error) {
-            console.error('[SyncService] Error updating club:', error);
+          // Upload updates for existing clubs (only if we're the owner)
+          if (club.owner_id === session.user.id) {
+            console.log('[SyncService] Uploading club update:', club.name);
+            try {
+              await this.uploadToSupabase('clubs', club, 'UPDATE');
+              console.log('[SyncService] ✅ Club updated on server:', club.name);
+            } catch (error) {
+              console.error('[SyncService] Error updating club:', error);
+            }
+          } else {
+            console.log('[SyncService] Skipping club update (not owner):', club.name);
           }
         }
       }
@@ -226,8 +315,11 @@ class SyncService {
       const clubsToSync = await dataService.getClubs();
       
       if (!clubsToSync || clubsToSync.length === 0) {
-        console.log('No clubs to sync from server');
+        console.log('[SyncService] No clubs to sync');
         await this.updateLastSyncTime();
+        const newLastSync = await this.getLastSyncTime();
+        this.notifyListeners({ isSyncing: false, lastSync: newLastSync, error: null });
+        console.log('[SyncService] Sync completed successfully (no clubs)');
         return true;
       }
 
@@ -236,6 +328,8 @@ class SyncService {
       const uploadedParticipantIds = new Set<string>(); // Track IDs of participants we just uploaded
       
       for (const club of clubsToSync) {
+        const isOwner = club.owner_id === session.user.id;
+        
         // === SESSIONS SYNC ===
         const localSessions = await dataService.getSessions(club.id);
         
@@ -248,16 +342,20 @@ class SyncService {
         const serverSessionIds = new Set(serverSessions?.map(s => s.id) || []);
         const localSessionIds = new Set(localSessions.filter(s => !s.id.startsWith('local-')).map(s => s.id));
         
-        // Delete sessions from server that don't exist locally
-        for (const serverId of serverSessionIds) {
-          if (!localSessionIds.has(serverId)) {
-            try {
-              console.log(`[SyncService] Deleting session from server: ${serverId}`);
-              await supabase.from('sessions').delete().eq('id', serverId);
-            } catch (err) {
-              console.error('[SyncService] Failed to delete session:', err);
+        // Only delete sessions from server if we're the owner
+        if (isOwner) {
+          for (const serverId of serverSessionIds) {
+            if (!localSessionIds.has(serverId)) {
+              try {
+                console.log(`[SyncService] Deleting session from server: ${serverId}`);
+                await supabase.from('sessions').delete().eq('id', serverId);
+              } catch (err) {
+                console.error('[SyncService] Failed to delete session:', err);
+              }
             }
           }
+        } else {
+          console.log(`[SyncService] Skipping session deletions (not owner): ${club.name}`);
         }
         
         // Push all local sessions to server
@@ -314,16 +412,20 @@ class SyncService {
         const serverParticipantIds = new Set(serverParticipants?.map(p => p.id) || []);
         const localParticipantIds = new Set(localParticipants.filter(p => !p.id.startsWith('local-')).map(p => p.id));
         
-        // Delete participants from server that don't exist locally
-        for (const serverId of serverParticipantIds) {
-          if (!localParticipantIds.has(serverId)) {
-            try {
-              console.log(`[SyncService] Deleting participant from server: ${serverId}`);
-              await supabase.from('participants').delete().eq('id', serverId);
-            } catch (err) {
-              console.error('[SyncService] Failed to delete participant:', err);
+        // Only delete participants from server if we're the owner
+        if (isOwner) {
+          for (const serverId of serverParticipantIds) {
+            if (!localParticipantIds.has(serverId)) {
+              try {
+                console.log(`[SyncService] Deleting participant from server: ${serverId}`);
+                await supabase.from('participants').delete().eq('id', serverId);
+              } catch (err) {
+                console.error('[SyncService] Failed to delete participant:', err);
+              }
             }
           }
+        } else {
+          console.log(`[SyncService] Skipping participant deletions (not owner): ${club.name}`);
         }
         
         // Push all local participants to server
@@ -544,8 +646,17 @@ class SyncService {
       }
 
       // Sync each club (download changes from server, skipping IDs we just uploaded)
+      console.log(`[SyncService] ⬇️ About to sync ${clubsToSync.length} clubs`);
       for (const club of clubsToSync) {
-        await this.syncClub(club.id, since, uploadedSessionIds, uploadedParticipantIds);
+        console.log(`[SyncService] ⬇️ Syncing club: ${club.name} (${club.id})`);
+        const isOwner = club.owner_id === session.user.id;
+        const localSessions = await dataService.getSessions(club.id);
+        
+        // For members with no local data, do a full sync (not just since last sync)
+        const needsFullSync = !isOwner && localSessions.length === 0;
+        const syncSince = needsFullSync ? new Date(0) : since; // Epoch = get all data
+        
+        await this.syncClub(club.id, syncSince, uploadedSessionIds, uploadedParticipantIds);
       }
 
       // Update last sync time
@@ -577,32 +688,54 @@ class SyncService {
     skipParticipantIds: Set<string> = new Set()
   ) => {
     try {
-      console.log(`Syncing club ${clubId} since ${since.toISOString()}`);
+      console.log(`[SyncService] 🔄 Syncing club ${clubId} since ${since.toISOString()}`);
 
       // Get changes from server using direct queries (no sync_log needed)
       // For simplified schema, we just fetch all data newer than 'since'
       const sinceStr = since.toISOString();
 
-      // Fetch club data
+      // Fetch club data (updated since last sync)
       const { data: clubData } = await supabase
         .from('clubs')
         .select('*')
         .eq('id', clubId)
-        .gte('created_at', sinceStr);
+        .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
 
-      // Fetch sessions for this club
-      const { data: sessionsData } = await supabase
+      // Fetch sessions for this club (updated since last sync)
+      console.log(`[SyncService] 🔍 Querying sessions: club_id=${clubId}, since=${sinceStr}`);
+      const { data: sessionsData, error: sessionsError } = await supabase
         .from('sessions')
         .select('*')
         .eq('club_id', clubId)
-        .gte('created_at', sinceStr);
+        .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
 
-      // Fetch participants for this club
+      if (sessionsError) {
+        console.error('[SyncService] ❌ Sessions query error:', sessionsError);
+      }
+      console.log(`[SyncService] 📥 Server returned ${sessionsData?.length || 0} sessions`);
+      if (sessionsData && sessionsData.length > 0) {
+        sessionsData.forEach((session, idx) => {
+          console.log(`[SyncService] Session ${idx + 1}:`);
+          console.log(`  - id: ${session.id}`);
+          console.log(`  - day_of_week: ${session.day_of_week}`);
+          console.log(`  - start_time: ${session.start_time}`);
+          console.log(`  - end_time: ${session.end_time}`);
+          console.log(`  - created_at: ${session.created_at}`);
+          console.log(`  - updated_at: ${session.updated_at}`);
+        });
+      }
+
+      // Fetch participants for this club (updated since last sync)
       const { data: participantsData } = await supabase
         .from('participants')
         .select('*')
         .eq('club_id', clubId)
-        .gte('created_at', sinceStr);
+        .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
+
+      console.log(`[SyncService] 📥 Server returned ${participantsData?.length || 0} participants`);
+      if (participantsData && participantsData.length > 0) {
+        console.log('[SyncService] Participants from server:', JSON.stringify(participantsData, null, 2));
+      }
 
       // Fetch participant_sessions for participants in this club
       const { data: participantSessionsData } = await supabase
@@ -768,6 +901,25 @@ class SyncService {
         }
         return data;
       } else if (operation === 'INSERT' || operation === 'UPDATE') {
+        // For UPDATE operations, check if local data is newer before uploading
+        if (operation === 'UPDATE' && !record.id.startsWith('local-')) {
+          const { data: serverRecord } = await supabase
+            .from(table)
+            .select('updated_at')
+            .eq('id', record.id)
+            .single();
+          
+          if (serverRecord?.updated_at && record.updated_at) {
+            const serverTime = new Date(serverRecord.updated_at).getTime();
+            const localTime = new Date(record.updated_at).getTime();
+            
+            if (localTime <= serverTime) {
+              console.log(`[SyncService] Skipping upload - server data is newer for ${table}:`, record.id);
+              return serverRecord;
+            }
+          }
+        }
+        
         // Prepare record for upload (remove local-only fields and map to new schema)
         const cleanRecord: any = { ...record };
         delete cleanRecord.preferred_session_ids; // This is handled by participant_sessions table
@@ -793,14 +945,14 @@ class SyncService {
           if (error) throw error;
           return data;
         } else if (table === 'sessions') {
-          // Sessions: keep day_of_week, start_time, end_time, updated_at
-          const { id, club_id, day_of_week, start_time, end_time, updated_at } = cleanRecord;
+          // Sessions: keep day_of_week, start_time, end_time (updated_at is handled by DB trigger)
+          const { id, club_id, day_of_week, start_time, end_time } = cleanRecord;
           const mappedRecord: any = { 
             club_id,
             day_of_week,
             start_time,
-            end_time,
-            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
+            end_time
+            // Don't send updated_at - let database trigger handle it
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           
@@ -819,14 +971,14 @@ class SyncService {
           console.log('[SyncService] Session upload response:', data);
           return data;
         } else if (table === 'participants') {
-          // Participants: keep only id, club_id, first_name, last_name, is_long_term_sick, updated_at
-          const { id, club_id, first_name, last_name, is_long_term_sick, updated_at } = cleanRecord;
+          // Participants: keep only id, club_id, first_name, last_name, is_long_term_sick (updated_at is handled by DB trigger)
+          const { id, club_id, first_name, last_name, is_long_term_sick } = cleanRecord;
           const mappedRecord: any = { 
             club_id,
             first_name,
             last_name,
-            is_long_term_sick: is_long_term_sick || false,
-            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
+            is_long_term_sick: is_long_term_sick || false
+            // Don't send updated_at - let database trigger handle it
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           

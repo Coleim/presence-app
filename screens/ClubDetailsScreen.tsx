@@ -269,12 +269,15 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           ) : (
             <>
               <Text style={styles.title}>{club.name}</Text>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => setIsEditingName(true)}
-              >
-                <Feather name="edit" size={18} color={theme.colors.primary[700]} />
-              </TouchableOpacity>
+              {/* Only owner can edit club name */}
+              {isOwner && (
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => setIsEditingName(true)}
+                >
+                  <Feather name="edit" size={18} color={theme.colors.primary[700]} />
+                </TouchableOpacity>
+              )}
             </>
           )}
         </View>

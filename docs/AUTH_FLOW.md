@@ -39,7 +39,7 @@ Dans un terminal, exécutez :
 
 ```bash
 # Pour iOS Simulator
-xcrun simctl spawn booted defaults delete com.presence.app
+xcrun simctl spawn booted defaults delete com.coleim.cahierdepresence
 ```
 
 Ou supprimez et réinstallez l'application.
