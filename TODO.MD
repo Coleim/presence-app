@@ -3,8 +3,17 @@ Sync a faire:
 
 7- partager le club avec quelqu'un
 
-6- Tout le monde peut ajouter des participants , mais seul le owner peut supprimer un participant (ne pas proposer le popup dans l'app)
-7- seul le owner peut ajouter des sessions , supprimer le club et partager le club. Si pas owner on ne le voit pas
+Now I want to be able to share a club with someone.
+Let's assume it is only available for logged in person.
+Sharing a club should share a code to enter. This code is unique and displayed in the club details screen,
+Once the user enter the code in another device, it will fetch the data.
+Every update in any device is reflected in the cloud.
+Think about a simple mecanism to avoid concurrent update from 2 devices that overrides each others
+
+As security rules:
+- every one can add participants, but only the club owner can delete one (so don't propose it in the app)
+- only the owner can add/delete sessions, delete club and share club.
+
 
 
 À venir :

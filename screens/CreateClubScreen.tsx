@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { dataService } from '../lib/dataService';
+import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
 export default function CreateClubScreen({ navigation }) {
@@ -13,9 +14,13 @@ export default function CreateClubScreen({ navigation }) {
       return;
     }
     try {
+      // Get current user ID if authenticated
+      const userId = await authManager.getUserId();
+      
       const club = {
         name: name.trim(),
         description: description.trim(),
+        owner_id: userId || undefined, // Set owner if authenticated
       };
       // Wait for local save (fast), cloud sync happens in background
       await dataService.saveClub(club);

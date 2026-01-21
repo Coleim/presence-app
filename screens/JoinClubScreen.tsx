@@ -1,14 +1,36 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { syncService } from '../lib/syncService';
+import { dataService } from '../lib/dataService';
+import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
 export default function JoinClubScreen({ navigation }) {
   const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  React.useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const isAuth = await authManager.isAuthenticated();
+    setIsAuthenticated(isAuth);
+  };
 
   const joinClub = async () => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Connexion requise',
+        'Vous devez être connecté pour rejoindre un club partagé.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Se connecter', onPress: () => navigation.navigate('Auth') }
+        ]
+      );
+      return;
+    }
+
     if (!code.trim()) {
       Alert.alert('Erreur', 'Veuillez entrer un code de partage');
       return;
@@ -16,19 +38,21 @@ export default function JoinClubScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const clubId = await syncService.joinClubWithCode(
-        code.trim().toUpperCase(),
-        password.trim() || undefined
-      );
+      const club = await dataService.joinClubByCode(code.trim().toUpperCase());
+      
+      if (!club) {
+        Alert.alert('Erreur', 'Code de partage invalide ou club introuvable');
+        return;
+      }
       
       Alert.alert(
         'Succès',
-        'Vous avez rejoint le club avec succès!',
+        `Vous avez rejoint le club "${club.name}" avec succès!`,
         [
           {
             text: 'OK',
             onPress: () => {
-              // Navigate to the club details or back to home
+              // Navigate to the club details
               navigation.navigate('Home');
             }
           }
@@ -37,11 +61,9 @@ export default function JoinClubScreen({ navigation }) {
     } catch (error: any) {
       console.error('Error joining club:', error);
       
-      let errorMessage = 'Impossible de rejoindre le club';
-      if (error.message?.includes('not found')) {
+      let errorMessage = 'Impossible de rejoindre le club. Vérifiez que le code est correct.';
+      if (error.message?.includes('Invalid share code')) {
         errorMessage = 'Code de partage invalide';
-      } else if (error.message?.includes('password')) {
-        errorMessage = 'Mot de passe incorrect';
       }
       
       Alert.alert('Erreur', errorMessage);
@@ -62,8 +84,16 @@ export default function JoinClubScreen({ navigation }) {
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        {!isAuthenticated && (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>
+              ⚠️ Vous devez être connecté pour rejoindre un club partagé
+            </Text>
+          </View>
+        )}
+        
         <Text style={styles.description}>
-          Entrez le code et le mot de passe du club que vous souhaitez rejoindre.
+          Entrez le code partagé par le propriétaire du club pour le rejoindre.
         </Text>
 
         <Text style={styles.label}>Code du club</Text>
@@ -78,21 +108,10 @@ export default function JoinClubScreen({ navigation }) {
           editable={!loading}
         />
 
-        <Text style={styles.label}>Mot de passe (optionnel)</Text>
-        <TextInput
-          placeholder="Si requis"
-          value={password}
-          onChangeText={setPassword}
-          style={styles.input}
-          secureTextEntry
-          placeholderTextColor={theme.colors.text.secondary}
-          editable={!loading}
-        />
-
         <TouchableOpacity 
-          style={[styles.buttonPrimary, loading && styles.buttonDisabled]} 
+          style={[styles.buttonPrimary, (loading || !isAuthenticated) && styles.buttonDisabled]} 
           onPress={joinClub}
-          disabled={loading}
+          disabled={loading || !isAuthenticated}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -137,6 +156,19 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: theme.space[4],
+  },
+  warningBox: {
+    backgroundColor: theme.colors.warningBg,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.space[3],
+    marginBottom: theme.space[4],
+    borderWidth: 1,
+    borderColor: theme.colors.warning,
+  },
+  warningText: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.warning,
+    textAlign: 'center',
   },
   description: {
     fontSize: theme.typography.fontSize.md,

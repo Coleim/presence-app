@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Switch } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
 
 export default function EditParticipantScreen({ route, navigation }: any) {
@@ -11,10 +12,21 @@ export default function EditParticipantScreen({ route, navigation }: any) {
   const [isLongTermSick, setIsLongTermSick] = useState(participant.is_long_term_sick || false);
   const [sessions, setSessions] = useState<any[]>([]);
   const [selectedSessions, setSelectedSessions] = useState<string[]>(participant.preferred_session_ids || []);
+  const [isOwner, setIsOwner] = useState(false);
+  const [club, setClub] = useState<any>(null);
 
   useEffect(() => {
     loadSessions();
+    checkOwnership();
   }, []);
+
+  const checkOwnership = async () => {
+    const clubData = await dataService.getClub(clubId);
+    setClub(clubData);
+    
+    const userId = await authManager.getUserId();
+    setIsOwner(userId === clubData?.owner_id);
+  };
 
   const loadSessions = async () => {
     const data = await dataService.getSessions(clubId);
@@ -162,9 +174,18 @@ export default function EditParticipantScreen({ route, navigation }: any) {
           <Text style={styles.buttonPrimaryText}>Enregistrer</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.buttonDanger} onPress={deleteParticipant}>
-          <Text style={styles.buttonDangerText}>Supprimer le participant</Text>
-        </TouchableOpacity>
+        {/* Only owner can delete participants */}
+        {isOwner && (
+          <TouchableOpacity style={styles.buttonDanger} onPress={deleteParticipant}>
+            <Text style={styles.buttonDangerText}>Supprimer le participant</Text>
+          </TouchableOpacity>
+        )}
+        
+        {!isOwner && (
+          <Text style={styles.ownerOnlyHint}>
+            Seul le propriétaire du club peut supprimer des participants
+          </Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -312,5 +333,12 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.medium,
+  },  
+  ownerOnlyHint: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: theme.space[4],
   },
 });

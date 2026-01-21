@@ -107,7 +107,8 @@ class SyncService {
                 .insert({
                   name: club.name,
                   description: club.description || '',
-                  owner_id: session.user.id
+                  owner_id: session.user.id,
+                  updated_at: club.updated_at || new Date().toISOString()
                 })
                 .select()
                 .single();
@@ -208,16 +209,23 @@ class SyncService {
           } catch (error) {
             console.error('[SyncService] Failed to upload local club:', error);
           }
+        } else {
+          // Upload updates for existing clubs (with server IDs)
+          console.log('[SyncService] Uploading club update:', club.name);
+          try {
+            await this.uploadToSupabase('clubs', club, 'UPDATE');
+            console.log('[SyncService] ✅ Club updated on server:', club.name);
+          } catch (error) {
+            console.error('[SyncService] Error updating club:', error);
+          }
         }
       }
 
-      // Get user's clubs (now based on owner_id instead of club_members)
-      const { data: userClubs } = await supabase
-        .from('clubs')
-        .select('id')
-        .eq('owner_id', session.user.id);
-
-      if (!userClubs || userClubs.length === 0) {
+      // Get user's clubs from local storage
+      // We sync whatever clubs the user has locally (owned or joined via share code)
+      const clubsToSync = await dataService.getClubs();
+      
+      if (!clubsToSync || clubsToSync.length === 0) {
         console.log('No clubs to sync from server');
         await this.updateLastSyncTime();
         return true;
@@ -227,7 +235,7 @@ class SyncService {
       const uploadedSessionIds = new Set<string>(); // Track IDs of sessions we just uploaded
       const uploadedParticipantIds = new Set<string>(); // Track IDs of participants we just uploaded
       
-      for (const club of userClubs) {
+      for (const club of clubsToSync) {
         // === SESSIONS SYNC ===
         const localSessions = await dataService.getSessions(club.id);
         
@@ -492,7 +500,8 @@ class SyncService {
                   participant_id: a.participant_id,
                   session_id: a.session_id,
                   date: a.date,
-                  present: a.status === 'present' // Convert status text to boolean
+                  present: a.status === 'present', // Convert status text to boolean
+                  updated_at: a.updated_at || new Date().toISOString() // Preserve local timestamp
                 };
                 
                 console.log(`[SyncService] Uploading attendance: ${key}`);
@@ -518,7 +527,8 @@ class SyncService {
                 // Update existing attendance if status changed (compare boolean to converted status)
                 console.log(`[SyncService] Updating attendance: ${key} present=${serverRecord.present} → ${a.status === 'present'}`);
                 const { error } = await supabase.from('attendance').update({
-                  present: a.status === 'present'
+                  present: a.status === 'present',
+                  updated_at: a.updated_at || new Date().toISOString() // Preserve local timestamp
                 }).eq('id', serverRecord.id);
                 if (error) {
                   console.error(`[SyncService] Error updating attendance:`, error);
@@ -534,7 +544,7 @@ class SyncService {
       }
 
       // Sync each club (download changes from server, skipping IDs we just uploaded)
-      for (const club of userClubs) {
+      for (const club of clubsToSync) {
         await this.syncClub(club.id, since, uploadedSessionIds, uploadedParticipantIds);
       }
 
@@ -660,14 +670,35 @@ class SyncService {
 
     // Merge server records into local storage
     for (const serverRecord of records) {
-      const existing = localRecords.findIndex((r: any) => r.id === serverRecord.id);
-      if (existing >= 0) {
-        // Update existing record, but preserve local fields if server doesn't have them
-        console.log(`[SyncService] Updating existing ${tableName} record:`, serverRecord.id);
-        localRecords[existing] = { ...localRecords[existing], ...serverRecord };
+      const existingIndex = localRecords.findIndex((r: any) => r.id === serverRecord.id);
+      
+      if (existingIndex >= 0) {
+        const localRecord = localRecords[existingIndex];
+        
+        // Compare timestamps: only update if server is newer
+        const serverUpdated = serverRecord.updated_at || serverRecord.created_at;
+        const localUpdated = localRecord.updated_at || localRecord.created_at;
+        
+        if (serverUpdated && localUpdated) {
+          const serverTime = new Date(serverUpdated).getTime();
+          const localTime = new Date(localUpdated).getTime();
+          
+          if (serverTime > localTime) {
+            // Server is newer, update local
+            console.log(`[SyncService] Server ${tableName} is newer, updating local:`, serverRecord.id);
+            localRecords[existingIndex] = { ...localRecord, ...serverRecord };
+          } else {
+            console.log(`[SyncService] Local ${tableName} is newer, keeping local:`, serverRecord.id);
+            // Keep local version, don't overwrite
+          }
+        } else {
+          // No timestamps, use server version (default behavior)
+          console.log(`[SyncService] No timestamps, updating ${tableName}:`, serverRecord.id);
+          localRecords[existingIndex] = { ...localRecord, ...serverRecord };
+        }
       } else {
-        // Add new record
-        console.log(`[SyncService] Adding new ${tableName} record:`, serverRecord.id);
+        // Add new record from server
+        console.log(`[SyncService] Adding new ${tableName} record from server:`, serverRecord.id);
         localRecords.push(serverRecord);
       }
     }
@@ -743,12 +774,13 @@ class SyncService {
         
         // Map old fields to new schema
         if (table === 'clubs') {
-          // Clubs: keep only id, name, description, owner_id
-          const { id, name, description, owner_id } = cleanRecord;
+          // Clubs: keep only id, name, description, owner_id, updated_at
+          const { id, name, description, owner_id, updated_at } = cleanRecord;
           const mappedRecord: any = { 
             name, 
             description,
-            owner_id: owner_id || session.user.id // Ensure owner_id is set
+            owner_id: owner_id || session.user.id, // Ensure owner_id is set
+            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           
@@ -761,13 +793,14 @@ class SyncService {
           if (error) throw error;
           return data;
         } else if (table === 'sessions') {
-          // Sessions: keep day_of_week, start_time, end_time as-is
-          const { id, club_id, day_of_week, start_time, end_time } = cleanRecord;
+          // Sessions: keep day_of_week, start_time, end_time, updated_at
+          const { id, club_id, day_of_week, start_time, end_time, updated_at } = cleanRecord;
           const mappedRecord: any = { 
             club_id,
             day_of_week,
             start_time,
-            end_time
+            end_time,
+            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           
@@ -786,13 +819,14 @@ class SyncService {
           console.log('[SyncService] Session upload response:', data);
           return data;
         } else if (table === 'participants') {
-          // Participants: keep only id, club_id, first_name, last_name, is_long_term_sick
-          const { id, club_id, first_name, last_name, is_long_term_sick } = cleanRecord;
+          // Participants: keep only id, club_id, first_name, last_name, is_long_term_sick, updated_at
+          const { id, club_id, first_name, last_name, is_long_term_sick, updated_at } = cleanRecord;
           const mappedRecord: any = { 
             club_id,
             first_name,
             last_name,
-            is_long_term_sick: is_long_term_sick || false
+            is_long_term_sick: is_long_term_sick || false,
+            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           

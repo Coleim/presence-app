@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Keyboard } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Keyboard, Share } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { syncService } from '../lib/syncService';
@@ -13,16 +13,59 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(club.name);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
+  const [shareCode, setShareCode] = useState(club.share_code);
 
   useEffect(() => {
     checkAuth();
     fetchSessions();
     fetchParticipants();
+    ensureShareCode();
   }, []);
+
+  const ensureShareCode = async () => {
+    // If club doesn't have a share code and it's not a local club, generate one
+    if (!shareCode && !club.id.startsWith('local-')) {
+      try {
+        const { supabase } = await import('../lib/supabase');
+        // Call the SQL function to generate a share code
+        const { data, error } = await supabase.rpc('generate_share_code');
+        
+        if (error) {
+          console.error('[ClubDetailsScreen] Error calling generate_share_code:', error);
+          return;
+        }
+        
+        const newShareCode = data;
+        
+        // Update the club with the new share code
+        const { error: updateError } = await supabase
+          .from('clubs')
+          .update({ share_code: newShareCode })
+          .eq('id', club.id);
+        
+        if (!updateError) {
+          setShareCode(newShareCode);
+          // Update local storage
+          club.share_code = newShareCode;
+          await dataService.saveClub(club);
+        }
+      } catch (error) {
+        console.error('[ClubDetailsScreen] Error generating share code:', error);
+      }
+    }
+  };
 
   const checkAuth = async () => {
     const isAuth = await authManager.isAuthenticated();
     setIsAuthenticated(isAuth);
+    
+    if (isAuth) {
+      const userId = await authManager.getUserId();
+      setCurrentUserId(userId);
+      setIsOwner(userId === club.owner_id);
+    }
   };
 
   useEffect(() => {
@@ -166,6 +209,19 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
     setIsEditingName(false);
   };
 
+  const shareClubCode = async () => {
+    if (!shareCode) return;
+    
+    try {
+      await Share.share({
+        message: `Rejoins mon club "${club.name}" !\n\nCode d'accès: ${shareCode}\n\nUtilise ce code dans l'application pour rejoindre le club.`,
+        title: `Partager le club ${club.name}`
+      });
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header Container */}
@@ -225,16 +281,20 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         {club.description && <Text style={styles.description}>{club.description}</Text>}
 
         <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.buttonOutline}
-            onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
-          >
-            <View style={styles.buttonWithIcon}>
-              <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonOutlineText}>Ajouter une session</Text>
-            </View>
-          </TouchableOpacity>
+          {/* Only owner can add sessions */}
+          {isOwner && (
+            <TouchableOpacity
+              style={styles.buttonOutline}
+              onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
+            >
+              <View style={styles.buttonWithIcon}>
+                <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
+                <Text style={styles.buttonOutlineText}>Ajouter une session</Text>
+              </View>
+            </TouchableOpacity>
+          )}
 
+          {/* Everyone can add participants */}
           <TouchableOpacity
             style={styles.buttonOutline}
             onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
@@ -264,11 +324,12 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.listItem}
-                onLongPress={() => deleteSession(item.id, `${item.day_of_week} ${item.start_time}-${item.end_time}`)}
+                onLongPress={isOwner ? () => deleteSession(item.id, `${item.day_of_week} ${item.start_time}-${item.end_time}`) : undefined}
               >
                 <Text style={styles.listItemText}>
                   {item.day_of_week} {item.start_time}-{item.end_time}
                 </Text>
+                {!isOwner && <Text style={styles.ownerOnlyHint}>(seul le propriétaire peut supprimer)</Text>}
               </TouchableOpacity>
             )}
             scrollEnabled={false}
@@ -304,44 +365,52 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           />
         </View>
 
-        {/* Admin Section */}
-        <View style={styles.adminSection}>
-          <Text style={styles.adminSectionTitle}>Administration</Text>
-          <TouchableOpacity
-            style={styles.buttonAdmin}
-            onPress={resetStats}
-          >
-            <View style={styles.buttonWithIcon}>
-              <Feather name="refresh-cw" size={18} color="white" />
-              <Text style={styles.buttonAdminText}>Démarrer l'année</Text>
-            </View>
-          </TouchableOpacity>
-          {club.stats_reset_date && (
-            <Text style={styles.resetDateText}>
-              Stats depuis le {new Date(club.stats_reset_date).toLocaleDateString('fr-FR')}
-            </Text>
-          )}
-        </View>
-
-        {isAuthenticated && (
-          <View style={styles.adminContainer}>
-            <TouchableOpacity 
-              style={styles.buttonOutline} 
-              onPress={() => navigation.navigate('ShareClub', { clubId: club.id, clubName: club.name })}
-            >
-              <View style={styles.buttonContent}>
-                <Feather name="share-2" size={20} color={theme.colors.primary[700]} />
-                <Text style={styles.buttonOutlineText}>Partager le club</Text>
+        {/* Admin Section - Only owner can reset stats */}
+        {isOwner && (
+          <View style={styles.adminSection}>
+            <Text style={styles.adminSectionTitle}>Administration</Text>
+            
+            {/* Share Code */}
+            {shareCode && (
+              <View style={styles.adminRow}>
+                <View style={styles.adminRowContent}>
+                  <Text style={styles.adminRowLabel}>Code de partage</Text>
+                  <Text style={styles.shareCodeText}>{shareCode}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.adminIconButton}
+                  onPress={shareClubCode}
+                >
+                  <Feather name="share-2" size={20} color={theme.colors.primary[700]} />
+                </TouchableOpacity>
               </View>
+            )}
+            
+            <TouchableOpacity
+              style={styles.adminRow}
+              onPress={resetStats}
+            >
+              <View style={styles.adminRowContent}>
+                <Text style={styles.adminRowLabel}>Démarrer l'année</Text>
+                {club.stats_reset_date && (
+                  <Text style={styles.adminRowHint}>
+                    Stats depuis le {new Date(club.stats_reset_date).toLocaleDateString('fr-FR')}
+                  </Text>
+                )}
+              </View>
+              <Feather name="refresh-cw" size={20} color={theme.colors.primary[700]} />
             </TouchableOpacity>
           </View>
         )}
 
-        <View style={styles.dangerContainer}>
-          <TouchableOpacity style={styles.buttonDanger} onPress={deleteClub}>
-            <Text style={styles.buttonDangerText}>Supprimer le club</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Only owner can delete club */}
+        {isOwner && (
+          <View style={styles.dangerContainer}>
+            <TouchableOpacity style={styles.buttonDanger} onPress={deleteClub}>
+              <Text style={styles.buttonDangerText}>Supprimer le club</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -475,37 +544,43 @@ const styles = StyleSheet.create({
     borderColor: '#B0C4D9',
   },
   adminSectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.colors.primary[900],
-    marginBottom: theme.space[3],
-  },
-  buttonAdmin: {
-    backgroundColor: theme.colors.primary[700],
-    padding: theme.space[3],
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonAdminText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  resetDateText: {
-    fontSize: 12,
-    color: '#4A7BA7',
-    marginTop: theme.space[2],
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  section: {
-    marginBottom: theme.space[5],
-  },
-  sectionTitle: {
     fontSize: theme.typography.fontSize.lg,
-    fontWeight: theme.typography.fontWeight.medium,
+    fontWeight: theme.typography.fontWeight.semibold,
     color: theme.colors.text.primary,
     marginBottom: theme.space[3],
+  },
+  adminRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.white,
+    padding: theme.space[4],
+    borderRadius: theme.borderRadius.md,
+    marginBottom: theme.space[2],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  adminRowContent: {
+    flex: 1,
+  },
+  adminRowLabel: {
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
+    color: theme.colors.text.primary,
+    marginBottom: theme.space[1],
+  },
+  adminRowHint: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary,
+  },
+  adminIconButton: {
+    padding: theme.space[2],
+  },
+  shareCodeText: {
+    fontSize: theme.typography.fontSize.xl,
+    fontWeight: theme.typography.fontWeight.semibold,
+    color: theme.colors.primary[700],
+    letterSpacing: 2,
   },
   listItem: {
     flexDirection: 'row',
@@ -517,6 +592,12 @@ const styles = StyleSheet.create({
     marginBottom: theme.space[2],
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  ownerOnlyHint: {
+    fontSize: theme.typography.fontSize.xs,
+    color: theme.colors.text.tertiary,
+    fontStyle: 'italic',
+    marginLeft: theme.space[2],
   },
   listItemContent: {
     flexDirection: 'row',

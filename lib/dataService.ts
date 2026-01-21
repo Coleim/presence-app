@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
-import { syncService } from './syncService';
 
 const CLUBS_KEY = '@presence_app:clubs';
 const SESSIONS_KEY = '@presence_app:sessions';
@@ -13,6 +12,10 @@ export interface Club {
   id: string;
   name: string;
   description?: string;
+  owner_id?: string;
+  share_code?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Session {
@@ -22,6 +25,8 @@ export interface Session {
   start_time: string;
   end_time: string;
   date?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Participant {
@@ -31,6 +36,8 @@ export interface Participant {
   last_name: string;
   is_long_term_sick?: boolean; // Exclude from attendance statistics
   preferred_session_ids?: string[]; // Array of session IDs this participant is assigned to
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ParticipantSession {
@@ -45,6 +52,8 @@ export interface AttendanceRecord {
   participant_id: string;
   date: string;
   status: 'present' | 'absent';
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface User {
@@ -107,6 +116,55 @@ class DataService {
     const clubs = await this.getClubs();
     return clubs.find(c => c.id === id) || null;
   }
+
+  // Join a club using a share code
+  joinClubByCode = async (shareCode: string): Promise<Club | null> => {
+    try {
+      // Try to fetch club from server by share code
+      const { data, error } = await supabase
+        .rpc('get_club_by_share_code', {
+          p_share_code: shareCode.toUpperCase()
+        });
+
+      if (error) {
+        console.error('[DataService] Error fetching club:', error);
+        return null;
+      }
+
+      if (!data || data.length === 0) {
+        console.log('[DataService] No club found with code:', shareCode);
+        return null;
+      }
+
+      const clubData = data[0];
+      const club: Club = {
+        id: clubData.club_id,
+        name: clubData.club_name,
+        description: clubData.club_description,
+        owner_id: clubData.owner_id,
+        share_code: clubData.share_code,
+        created_at: clubData.created_at,
+        updated_at: clubData.updated_at
+      };
+
+      // Save club locally
+      const clubs = await this.getClubs();
+      const existingIndex = clubs.findIndex(c => c.id === club.id);
+      if (existingIndex >= 0) {
+        clubs[existingIndex] = club;
+      } else {
+        clubs.push(club);
+      }
+      await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
+
+      console.log('[DataService] Successfully joined club:', club.name);
+      return club;
+    } catch (error) {
+      console.error('[DataService] Error joining club by code:', error);
+      return null;
+    }
+  }
+  
   resetClubStats = async (clubId: string): Promise<void> => {
     const resetDate = new Date().toISOString().split('T')[0];
     
@@ -196,7 +254,7 @@ class DataService {
         // Delete club
         if (club) {
           console.log('[DataService] Deleting club', id);
-          await syncService.uploadToSupabase('clubs', club, 'DELETE');
+          await supabase.from('clubs').delete().eq('id', id);
           console.log('[DataService] ✅ Club deleted from cloud');
         }
       } catch (e) {
@@ -212,11 +270,16 @@ class DataService {
     const clubs = await this.getClubs();
     const existingIndex = clubs.findIndex((c: Club) => c.id === club.id);
     
+    // Add updated_at timestamp
+    club.updated_at = new Date().toISOString();
+    
     if (existingIndex >= 0) {
       clubs[existingIndex] = club;
     } else {
-      // Generate UUID for new club
+      // Generate local ID for new club (server will generate share_code via trigger)
       club.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      club.created_at = new Date().toISOString();
+      // Don't set share_code - server will generate it via trigger
       clubs.push(club);
     }
     
@@ -238,6 +301,9 @@ class DataService {
     const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
     let sessions = allSessions ? JSON.parse(allSessions) : [];
     const existingIndex = sessions.findIndex((s: Session) => s.id === session.id);
+    
+    // Add updated_at timestamp
+    session.updated_at = new Date().toISOString();
     
     if (existingIndex >= 0) {
       sessions[existingIndex] = session;
@@ -265,7 +331,7 @@ class DataService {
     }
     if (this.isOnline && session) {
       try {
-        await syncService.uploadToSupabase('sessions', session, 'DELETE');
+        await supabase.from('sessions').delete().eq('id', id);
       } catch (e) {
         console.info('Delete sync later');
       }
@@ -288,6 +354,9 @@ class DataService {
     const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
     let participants = allParticipants ? JSON.parse(allParticipants) : [];
     const existingIndex = participants.findIndex((p: Participant) => p.id === participant.id);
+    
+    // Add updated_at timestamp
+    participant.updated_at = new Date().toISOString();
     
     if (existingIndex >= 0) {
       participants[existingIndex] = participant;
@@ -315,7 +384,7 @@ class DataService {
     }
     if (this.isOnline && participant) {
       try {
-        await syncService.uploadToSupabase('participants', participant, 'DELETE');
+        await supabase.from('participants').delete().eq('id', id);
       } catch (e) {
         console.info('Delete sync later');
       }
@@ -362,10 +431,11 @@ class DataService {
     console.log('[DataService] Filtering by - sessionId:', sessionId, 'date:', date);
     attendance = attendance.filter((a: AttendanceRecord) => !(a.session_id === sessionId && a.date === date));
     
-    // Add new records with IDs
+    // Add new records with IDs and timestamps
     const recordsWithIds = records.map(record => ({
       ...record,
-      id: record.id || Date.now().toString() + Math.random().toString(36).substr(2, 9)
+      id: record.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      updated_at: new Date().toISOString()
     }));
     
     attendance.push(...recordsWithIds);
