@@ -1,18 +1,65 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { dataService } from '../lib/dataService';
 import { authManager } from '../lib/authManager';
+import { usageService } from '../lib/usageService';
+import { hasReachedClubLimit, getLimitMessage, USAGE_LIMITS } from '../lib/usageLimits';
+import { UpgradePrompt } from '../components/UpgradePrompt';
 import { theme } from '../lib/theme';
 
 export default function CreateClubScreen({ navigation }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [canCreateClub, setCanCreateClub] = useState(true);
+  const [clubsOwned, setClubsOwned] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkClubLimit();
+  }, []);
+
+  const checkClubLimit = async () => {
+    try {
+      const userId = await authManager.getUserId();
+      
+      // If not logged in, allow unlimited clubs (local-only mode)
+      if (!userId) {
+        setCanCreateClub(true);
+        setClubsOwned(0);
+        setIsLoading(false);
+        return;
+      }
+
+      const stats = await usageService.getUserUsageStats(userId);
+      setClubsOwned(stats.clubsOwned);
+      setCanCreateClub(!hasReachedClubLimit(stats.clubsOwned));
+    } catch (error) {
+      console.error('Error checking club limit:', error);
+      // On error, allow creation (fail open for better UX)
+      setCanCreateClub(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const createClub = async () => {
     if (!name.trim()) {
       alert('Please enter a club name');
       return;
     }
+
+    // Check limit before creating
+    if (!canCreateClub) {
+      Alert.alert(
+        'Limite atteinte',
+        getLimitMessage('club') + '\n\nPassez à la version Premium pour créer des clubs illimités.',
+        [
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
     try {
       // Get current user ID if authenticated
       const userId = await authManager.getUserId();
@@ -27,7 +74,15 @@ export default function CreateClubScreen({ navigation }) {
       // Navigate after local save completes
       navigation.goBack();
     } catch (error) {
-      alert('Error creating club: ' + error.message);
+      // Handle database constraint errors
+      if (error.message && error.message.includes('only own 1 club')) {
+        Alert.alert(
+          'Limite atteinte',
+          getLimitMessage('club') + '\n\nPassez à la version Premium pour créer des clubs illimités.'
+        );
+      } else {
+        alert('Error creating club: ' + error.message);
+      }
     }
   };
 
@@ -45,6 +100,23 @@ export default function CreateClubScreen({ navigation }) {
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        {/* Show upgrade prompt if limit reached */}
+        {!canCreateClub && !isLoading && (
+          <UpgradePrompt
+            message={getLimitMessage('club')}
+            style={styles.upgradePrompt}
+          />
+        )}
+
+        {/* Show usage info if user can create and is logged in */}
+        {canCreateClub && !isLoading && clubsOwned > 0 && (
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>
+              Version gratuite: {clubsOwned}/{USAGE_LIMITS.CLUBS_PER_USER} club utilisé
+            </Text>
+          </View>
+        )}
+
         <Text style={styles.label}>Nom du club</Text>
         <TextInput
           placeholder="Entrez le nom du club"
@@ -52,6 +124,7 @@ export default function CreateClubScreen({ navigation }) {
           onChangeText={setName}
           style={styles.input}
           placeholderTextColor={theme.colors.text.secondary}
+          editable={canCreateClub}
         />
 
         <Text style={styles.label}>Description (optionnel)</Text>
@@ -63,10 +136,17 @@ export default function CreateClubScreen({ navigation }) {
           multiline
           numberOfLines={3}
           placeholderTextColor={theme.colors.text.secondary}
+          editable={canCreateClub}
         />
 
-        <TouchableOpacity style={styles.buttonPrimary} onPress={createClub}>
-          <Text style={styles.buttonPrimaryText}>Créer le club</Text>
+        <TouchableOpacity 
+          style={[styles.buttonPrimary, !canCreateClub && styles.buttonDisabled]} 
+          onPress={createClub}
+          disabled={!canCreateClub || isLoading}
+        >
+          <Text style={styles.buttonPrimaryText}>
+            {isLoading ? 'Vérification...' : 'Créer le club'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -133,5 +213,25 @@ const styles = StyleSheet.create({
     color: theme.colors.surface,
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.semibold,
+  },
+  buttonDisabled: {
+    backgroundColor: theme.colors.disabled,
+    opacity: 0.5,
+  },
+  upgradePrompt: {
+    marginBottom: theme.space[4],
+  },
+  infoBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: theme.borderRadius.md,
+    padding: theme.space[3],
+    marginBottom: theme.space[4],
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  infoText: {
+    fontSize: theme.typography.fontSize.sm,
+    color: '#1E40AF',
+    textAlign: 'center',
   },
 });

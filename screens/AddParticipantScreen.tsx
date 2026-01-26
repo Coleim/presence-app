@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { usageService } from '../lib/usageService';
+import { hasReachedParticipantsLimit, getLimitMessage, USAGE_LIMITS, shouldShowWarning } from '../lib/usageLimits';
+import { UsageBadge } from '../components/UsageBadge';
+import { UpgradePrompt } from '../components/UpgradePrompt';
 import { theme } from '../lib/theme';
 
 export default function AddParticipantScreen({ route, navigation }) {
@@ -10,10 +14,29 @@ export default function AddParticipantScreen({ route, navigation }) {
   const [lastName, setLastName] = useState('');
   const [sessions, setSessions] = useState([]);
   const [selectedSessions, setSelectedSessions] = useState([]);
+  const [participantCount, setParticipantCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchSessions();
+    fetchData();
   }, []);
+
+  const fetchData = async () => {
+    try {
+      await Promise.all([fetchSessions(), checkParticipantLimit()]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const checkParticipantLimit = async () => {
+    try {
+      const stats = await usageService.getClubUsageStats(clubId);
+      setParticipantCount(stats.participants);
+    } catch (error) {
+      console.error('Error checking participant limit:', error);
+    }
+  };
 
   const fetchSessions = async () => {
     const data = await dataService.getSessions(clubId);
@@ -36,23 +59,50 @@ export default function AddParticipantScreen({ route, navigation }) {
   };
 
   const addParticipant = async () => {
-    const participant = { 
-      club_id: clubId, 
-      first_name: firstName, 
-      last_name: lastName,
-      preferred_session_ids: selectedSessions // Include session assignments
-    };
-    
-    // Wait for local save (fast), cloud sync happens in background
-    const savedParticipant = await dataService.saveParticipant(participant);
-    
-    // Save participant_sessions mapping (wait for local save)
-    if (selectedSessions.length > 0) {
-      await dataService.saveParticipantSessions(savedParticipant.id, selectedSessions);
+    if (!firstName.trim() || !lastName.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer le prénom et le nom');
+      return;
     }
-    
-    // Navigate after local saves complete
-    navigation.goBack();
+
+    // Check limit before adding
+    if (hasReachedParticipantsLimit(participantCount)) {
+      Alert.alert(
+        'Limite atteinte',
+        getLimitMessage('participants') + '\n\nPassez à la version Premium pour des participants illimités.',
+        [{ text: 'OK', style: 'cancel' }]
+      );
+      return;
+    }
+
+    try {
+      const participant = { 
+        club_id: clubId, 
+        first_name: firstName.trim(), 
+        last_name: lastName.trim(),
+        preferred_session_ids: selectedSessions // Include session assignments
+      };
+      
+      // Wait for local save (fast), cloud sync happens in background
+      const savedParticipant = await dataService.saveParticipant(participant);
+      
+      // Save participant_sessions mapping (wait for local save)
+      if (selectedSessions.length > 0) {
+        await dataService.saveParticipantSessions(savedParticipant.id, selectedSessions);
+      }
+      
+      // Navigate after local saves complete
+      navigation.goBack();
+    } catch (error) {
+      // Handle database constraint errors
+      if (error.message && error.message.includes('cannot have more than 30 participants')) {
+        Alert.alert(
+          'Limite atteinte',
+          getLimitMessage('participants') + '\n\nPassez à la version Premium pour des participants illimités.'
+        );
+      } else {
+        Alert.alert('Erreur', 'Impossible d\'ajouter le participant: ' + error.message);
+      }
+    }
   };
 
   return (
@@ -69,6 +119,27 @@ export default function AddParticipantScreen({ route, navigation }) {
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        {/* Show usage badge */}
+        {!isLoading && (
+          <UsageBadge
+            current={participantCount}
+            limit={USAGE_LIMITS.PARTICIPANTS_PER_CLUB}
+            label="Participants dans ce club"
+          />
+        )}
+
+        {/* Show upgrade prompt when approaching or at limit */}
+        {!isLoading && shouldShowWarning(participantCount, USAGE_LIMITS.PARTICIPANTS_PER_CLUB) && (
+          <UpgradePrompt
+            message={
+              hasReachedParticipantsLimit(participantCount)
+                ? getLimitMessage('participants')
+                : `Vous approchez de la limite (${participantCount}/${USAGE_LIMITS.PARTICIPANTS_PER_CLUB})`
+            }
+            style={styles.upgradePrompt}
+          />
+        )}
+
         <Text style={styles.label}>Prénom</Text>
         <TextInput
           placeholder="Entrez le prénom"
@@ -230,5 +301,9 @@ const styles = StyleSheet.create({
     color: theme.colors.surface,
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.semibold,
+  },
+  upgradePrompt: {
+    marginTop: theme.space[2],
+    marginBottom: theme.space[3],
   },
 });

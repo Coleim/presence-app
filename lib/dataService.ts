@@ -314,42 +314,48 @@ class DataService {
       await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(filteredPS));
     }
     
-    // Delete from cloud
-    if (this.isOnline) {
-      console.log('[DataService] Deleting club from cloud:', id);
-      try {
-        // Delete participant_sessions first (foreign key constraint)
-        if (participantIds.length > 0) {
-          console.log('[DataService] Deleting participant_sessions for', participantIds.length, 'participants');
-          await supabase.from('participant_sessions').delete().in('participant_id', participantIds);
-        }
-        // Delete attendance
-        if (sessionIds.length > 0) {
-          console.log('[DataService] Deleting attendance for', sessionIds.length, 'sessions');
-          await supabase.from('attendance').delete().in('session_id', sessionIds);
-        }
-        if (participantIds.length > 0) {
-          console.log('[DataService] Deleting attendance for', participantIds.length, 'participants');
-          await supabase.from('attendance').delete().in('participant_id', participantIds);
-        }
-        // Delete participants
-        console.log('[DataService] Deleting participants for club', id);
-        await supabase.from('participants').delete().eq('club_id', id);
-        // Delete sessions
-        console.log('[DataService] Deleting sessions for club', id);
-        await supabase.from('sessions').delete().eq('club_id', id);
-        // Delete club
-        if (club) {
+    // Delete from cloud ONLY if user is the owner
+    if (this.isOnline && club) {
+      // Get current user to check ownership
+      const { data: { user } } = await supabase.auth.getUser();
+      const isOwner = user && club.owner_id === user.id;
+      
+      if (isOwner) {
+        console.log('[DataService] User is owner - deleting club from cloud:', id);
+        try {
+          // Delete participant_sessions first (foreign key constraint)
+          if (participantIds.length > 0) {
+            console.log('[DataService] Deleting participant_sessions for', participantIds.length, 'participants');
+            await supabase.from('participant_sessions').delete().in('participant_id', participantIds);
+          }
+          // Delete attendance
+          if (sessionIds.length > 0) {
+            console.log('[DataService] Deleting attendance for', sessionIds.length, 'sessions');
+            await supabase.from('attendance').delete().in('session_id', sessionIds);
+          }
+          if (participantIds.length > 0) {
+            console.log('[DataService] Deleting attendance for', participantIds.length, 'participants');
+            await supabase.from('attendance').delete().in('participant_id', participantIds);
+          }
+          // Delete participants
+          console.log('[DataService] Deleting participants for club', id);
+          await supabase.from('participants').delete().eq('club_id', id);
+          // Delete sessions
+          console.log('[DataService] Deleting sessions for club', id);
+          await supabase.from('sessions').delete().eq('club_id', id);
+          // Delete club
           console.log('[DataService] Deleting club', id);
           await supabase.from('clubs').delete().eq('id', id);
           console.log('[DataService] ✅ Club deleted from cloud');
+        } catch (e) {
+          console.error('Error deleting club from cloud:', e);
+          console.info('Club deleted locally, will try to sync later');
         }
-      } catch (e) {
-        console.error('Error deleting club from cloud:', e);
-        console.info('Club deleted locally, will sync later');
+      } else {
+        console.log('[DataService] User is not owner - club deleted locally only (not from cloud)');
       }
     } else {
-      console.log('[DataService] Offline - club deleted locally only');
+      console.log('[DataService] Offline or no club data - club deleted locally only');
     }
   }
 

@@ -65,6 +65,9 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
       const userId = await authManager.getUserId();
       setCurrentUserId(userId);
       setIsOwner(userId === club.owner_id);
+    } else {
+      // Not logged in = local-only mode = full permissions
+      setIsOwner(true);
     }
   };
 
@@ -132,11 +135,17 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
-            dataService.checkOnline();
-            // Delete in background
-            dataService.deleteClub(club.id);
-            // Navigate immediately
-            navigation.goBack();
+            try {
+              // Delete locally first (always works)
+              await dataService.deleteClub(club.id);
+              console.log('[ClubDetails] Club deleted locally');
+              
+              // Navigate immediately after local deletion
+              navigation.goBack();
+            } catch (error) {
+              console.error('[ClubDetails] Error deleting club:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer le club');
+            }
           }
         }
       ]

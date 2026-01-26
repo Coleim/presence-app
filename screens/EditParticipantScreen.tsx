@@ -25,7 +25,8 @@ export default function EditParticipantScreen({ route, navigation }: any) {
     setClub(clubData);
     
     const userId = await authManager.getUserId();
-    setIsOwner(userId === clubData?.owner_id);
+    // If not logged in (userId is null), allow editing (local-only mode)
+    setIsOwner(!userId || userId === clubData?.owner_id);
   };
 
   const loadSessions = async () => {

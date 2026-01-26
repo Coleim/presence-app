@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { dataService } from '../lib/dataService';
+import { usageService } from '../lib/usageService';
+import { hasReachedSessionsLimit, getLimitMessage, USAGE_LIMITS, shouldShowWarning } from '../lib/usageLimits';
+import { UsageBadge } from '../components/UsageBadge';
+import { UpgradePrompt } from '../components/UpgradePrompt';
 import { theme } from '../lib/theme';
 
 export default function AddSessionScreen({ route, navigation }) {
@@ -12,6 +16,23 @@ export default function AddSessionScreen({ route, navigation }) {
   const [endTime, setEndTime] = useState(new Date(2000, 0, 1, 10, 0)); // 10:00 AM
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [sessionCount, setSessionCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkSessionLimit();
+  }, []);
+
+  const checkSessionLimit = async () => {
+    try {
+      const stats = await usageService.getClubUsageStats(clubId);
+      setSessionCount(stats.sessions);
+    } catch (error) {
+      console.error('Error checking session limit:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const formatTime = (date: Date) => {
     const hours = date.getHours().toString().padStart(2, '0');
@@ -34,6 +55,16 @@ export default function AddSessionScreen({ route, navigation }) {
   };
 
   const addSession = async () => {
+    // Check limit before adding
+    if (hasReachedSessionsLimit(sessionCount)) {
+      Alert.alert(
+        'Limite atteinte',
+        getLimitMessage('sessions') + '\n\nPassez à la version Premium pour des créneaux illimités.',
+        [{ text: 'OK', style: 'cancel' }]
+      );
+      return;
+    }
+
     try {
       const session = { club_id: clubId, day_of_week: day, start_time: formatTime(startTime), end_time: formatTime(endTime) };
       // Wait for local save (fast), cloud sync happens in background
@@ -42,7 +73,15 @@ export default function AddSessionScreen({ route, navigation }) {
       navigation.goBack();
     } catch (error) {
       console.error('Error adding session:', error);
-      Alert.alert('Failed to add session', 'Please try again.');
+      // Handle database constraint errors
+      if (error.message && error.message.includes('cannot have more than 10 sessions')) {
+        Alert.alert(
+          'Limite atteinte',
+          getLimitMessage('sessions') + '\n\nPassez à la version Premium pour des créneaux illimités.'
+        );
+      } else {
+        Alert.alert('Erreur', 'Impossible d\'ajouter la session. Veuillez réessayer.');
+      }
     }
   };
 
@@ -60,6 +99,27 @@ export default function AddSessionScreen({ route, navigation }) {
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        {/* Show usage badge */}
+        {!isLoading && (
+          <UsageBadge
+            current={sessionCount}
+            limit={USAGE_LIMITS.SESSIONS_PER_CLUB}
+            label="Créneaux dans ce club"
+          />
+        )}
+
+        {/* Show upgrade prompt when approaching or at limit */}
+        {!isLoading && shouldShowWarning(sessionCount, USAGE_LIMITS.SESSIONS_PER_CLUB) && (
+          <UpgradePrompt
+            message={
+              hasReachedSessionsLimit(sessionCount)
+                ? getLimitMessage('sessions')
+                : `Vous approchez de la limite (${sessionCount}/${USAGE_LIMITS.SESSIONS_PER_CLUB})`
+            }
+            style={styles.upgradePrompt}
+          />
+        )}
+
         <Text style={styles.label}>Jour de la semaine</Text>
         <View style={styles.pickerContainer}>
           <Picker
@@ -185,5 +245,9 @@ const styles = StyleSheet.create({
     color: theme.colors.surface,
     fontSize: theme.typography.fontSize.md,
     fontWeight: theme.typography.fontWeight.semibold,
+  },
+  upgradePrompt: {
+    marginTop: theme.space[2],
+    marginBottom: theme.space[3],
   },
 });

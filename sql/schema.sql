@@ -1,164 +1,73 @@
--- Supabase SQL Schema for Attendance Management App
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- Enable RLS
-ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
-
--- Clubs table
-CREATE TABLE clubs (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  academic_year_start DATE,
-  academic_year_end DATE,
-  code TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
-  stats_reset_date DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE public.attendance (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  participant_id uuid NOT NULL,
+  session_id uuid NOT NULL,
+  date date NOT NULL,
+  present boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT attendance_pkey PRIMARY KEY (id),
+  CONSTRAINT attendance_participant_id_fkey FOREIGN KEY (participant_id) REFERENCES public.participants(id)
 );
-
--- Sessions table
-CREATE TABLE sessions (
-  id SERIAL PRIMARY KEY,
-  club_id INTEGER REFERENCES clubs(id) ON DELETE CASCADE,
-  day_of_week TEXT NOT NULL,
-  start_time TIME NOT NULL,
-  end_time TIME NOT NULL
+CREATE TABLE public.club_members (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  club_id uuid,
+  user_id uuid,
+  joined_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT club_members_pkey PRIMARY KEY (id),
+  CONSTRAINT club_members_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id),
+  CONSTRAINT club_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
--- Participants table
-CREATE TABLE participants (
-  id SERIAL PRIMARY KEY,
-  club_id INTEGER REFERENCES clubs(id) ON DELETE CASCADE,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  grade TEXT,
-  level TEXT,
-  notes TEXT
+CREATE TABLE public.clubs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  owner_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  share_code character varying UNIQUE,
+  CONSTRAINT clubs_pkey PRIMARY KEY (id),
+  CONSTRAINT clubs_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.user_profiles(id)
 );
-
--- Participant Sessions table (many-to-many relationship for preferred sessions)
-CREATE TABLE participant_sessions (
-  id SERIAL PRIMARY KEY,
-  participant_id INTEGER REFERENCES participants(id) ON DELETE CASCADE,
-  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
-  UNIQUE(participant_id, session_id)
+CREATE TABLE public.participant_sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  participant_id uuid NOT NULL,
+  session_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT participant_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT participant_sessions_participant_id_fkey FOREIGN KEY (participant_id) REFERENCES public.participants(id)
 );
-
--- Attendance table
-CREATE TABLE attendance (
-  id SERIAL PRIMARY KEY,
-  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
-  participant_id INTEGER REFERENCES participants(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('present', 'absent')),
-  UNIQUE(session_id, participant_id, date)
+CREATE TABLE public.participants (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  club_id uuid NOT NULL,
+  first_name text NOT NULL,
+  last_name text NOT NULL,
+  is_long_term_sick boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT participants_pkey PRIMARY KEY (id),
+  CONSTRAINT participants_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id)
 );
-
--- Club users table for access control
-CREATE TABLE club_users (
-  id SERIAL PRIMARY KEY,
-  club_id INTEGER REFERENCES clubs(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  UNIQUE(club_id, user_id)
+CREATE TABLE public.sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  club_id uuid NOT NULL,
+  day_of_week text NOT NULL,
+  start_time text NOT NULL,
+  end_time text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT sessions_club_id_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id)
 );
-
--- RLS Policies
--- Clubs: users can only see clubs they have access to
-CREATE POLICY "Users can view clubs they have access to" ON clubs
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM club_users
-      WHERE club_users.club_id = clubs.id
-      AND club_users.user_id = auth.uid()
-    )
-  );
-
--- Allow inserting clubs (for creation)
-CREATE POLICY "Users can create clubs" ON clubs FOR INSERT WITH CHECK (true);
-
--- Sessions: same as clubs
-CREATE POLICY "Users can view sessions of accessible clubs" ON sessions
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM club_users
-      WHERE club_users.club_id = sessions.club_id
-      AND club_users.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can insert sessions for accessible clubs" ON sessions
-  FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM club_users
-      WHERE club_users.club_id = sessions.club_id
-      AND club_users.user_id = auth.uid()
-    )
-  );
-
--- Similar for participants and attendance
-
-CREATE POLICY "Users can view participants of accessible clubs" ON participants
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM club_users
-      WHERE club_users.club_id = participants.club_id
-      AND club_users.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can insert participants for accessible clubs" ON participants
-  FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM club_users
-      WHERE club_users.club_id = participants.club_id
-      AND club_users.user_id = auth.uid()
-    )
-  );
-
--- Participant sessions policies
-CREATE POLICY "Users can view participant sessions of accessible clubs" ON participant_sessions
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM club_users cu
-      JOIN participants p ON p.id = participant_sessions.participant_id
-      WHERE cu.club_id = p.club_id
-      AND cu.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can manage participant sessions for accessible clubs" ON participant_sessions
-  FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM club_users cu
-      JOIN participants p ON p.id = participant_sessions.participant_id
-      WHERE cu.club_id = p.club_id
-      AND cu.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can view attendance of accessible clubs" ON attendance
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM club_users cu
-      JOIN sessions s ON s.id = attendance.session_id
-      WHERE cu.club_id = s.club_id
-      AND cu.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Users can insert/update attendance for accessible clubs" ON attendance
-  FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM club_users cu
-      JOIN sessions s ON s.id = attendance.session_id
-      WHERE cu.club_id = s.club_id
-      AND cu.user_id = auth.uid()
-    )
-  );
-
--- Club users
-CREATE POLICY "Users can view their club accesses" ON club_users
-  FOR SELECT USING (user_id = auth.uid());
-
-CREATE POLICY "Users can insert club accesses" ON club_users
-  FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE TABLE public.user_profiles (
+  id uuid NOT NULL,
+  email text NOT NULL,
+  display_name text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT user_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
