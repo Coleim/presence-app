@@ -55,7 +55,7 @@ export default function HomeScreen({ navigation }: any) {
           setSyncStatus(t('home.syncing'));
         } else if (status.lastSync) {
           const minutes = Math.floor((Date.now() - status.lastSync.getTime()) / 60000);
-          setSyncStatus(minutes === 0 ? t('home.syncing') : `Sync ${minutes}min`);
+          setSyncStatus(minutes === 0 ? t('home.synced') : `${t('home.sync')} ${minutes}min`);
           
           // Refresh data when sync completes
           if (wasSyncing && !status.isSyncing) {

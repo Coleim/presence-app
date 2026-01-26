@@ -25,8 +25,9 @@ export const fr = {
     createFirst: 'Créez votre premier club',
     createClub: 'Créer un club',
     joinClub: 'Rejoindre un club',
-    sync: 'Synchronisation',
+    sync: 'Sync',
     syncing: 'Synchronisation...',
+    synced: 'Synchronisé',
     lastSync: 'Dernière sync:',
     notConnected: 'Non connecté',
     signIn: 'Se connecter',
@@ -118,6 +119,8 @@ export const fr = {
     endTime: 'Heure de fin',
     add: 'Ajouter la session',
     error: 'Impossible d\'ajouter la session. Veuillez réessayer.',
+    endTimeAfterStart: 'L\'heure de fin doit être après l\'heure de début. Elle a été ajustée automatiquement.',
+    selectStartFirst: 'Veuillez d\'abord sélectionner l\'heure de début',
   },
 
   // Days of week

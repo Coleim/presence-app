@@ -27,6 +27,7 @@ export const en = {
     joinClub: 'Join Club',
     sync: 'Sync',
     syncing: 'Syncing...',
+    synced: 'Synced',
     lastSync: 'Last sync:',
     notConnected: 'Not connected',
     signIn: 'Sign In',
@@ -118,6 +119,8 @@ export const en = {
     endTime: 'End Time',
     add: 'Add Session',
     error: 'Unable to add session. Please try again.',
+    endTimeAfterStart: 'End time must be after start time. It has been automatically adjusted.',
+    selectStartFirst: 'Please select start time first',
   },
 
   // Days of week

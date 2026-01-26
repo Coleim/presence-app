@@ -18,6 +18,7 @@ export default function AddSessionScreen({ route, navigation }) {
   const [endTime, setEndTime] = useState(new Date(2000, 0, 1, 10, 0)); // 10:00 AM
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [startTimeSet, setStartTimeSet] = useState(false); // Track if user has set start time
   const [sessionCount, setSessionCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -46,13 +47,37 @@ export default function AddSessionScreen({ route, navigation }) {
     setShowStartPicker(Platform.OS === 'ios');
     if (selectedDate) {
       setStartTime(selectedDate);
+      setStartTimeSet(true);
+      
+      // Auto-adjust end time to be 1 hour after start time if it's before or equal to start time
+      const newEndTime = new Date(selectedDate);
+      newEndTime.setHours(selectedDate.getHours() + 1);
+      
+      // If end time is before or equal to the new start time, update it
+      if (endTime <= selectedDate) {
+        setEndTime(newEndTime);
+      }
     }
   };
 
   const onEndTimeChange = (event: any, selectedDate?: Date) => {
     setShowEndPicker(Platform.OS === 'ios');
     if (selectedDate) {
-      setEndTime(selectedDate);
+      // Ensure end time is after start time
+      if (selectedDate <= startTime) {
+        // Set end time to 1 hour after start time
+        const adjustedEndTime = new Date(startTime);
+        adjustedEndTime.setHours(startTime.getHours() + 1);
+        setEndTime(adjustedEndTime);
+        
+        Alert.alert(
+          t('common.error'),
+          t('addSession.endTimeAfterStart'),
+          [{ text: t('common.ok') }]
+        );
+      } else {
+        setEndTime(selectedDate);
+      }
     }
   };
 
@@ -155,9 +180,18 @@ export default function AddSessionScreen({ route, navigation }) {
         )}
 
         <Text style={styles.label}>{t('addSession.endTime')}</Text>
-        <TouchableOpacity onPress={() => setShowEndPicker(true)} style={styles.timeButton}>
-          <Text style={styles.timeButtonText}>{formatTime(endTime)}</Text>
+        <TouchableOpacity 
+          onPress={() => startTimeSet && setShowEndPicker(true)} 
+          style={[styles.timeButton, !startTimeSet && styles.timeButtonDisabled]}
+          disabled={!startTimeSet}
+        >
+          <Text style={[styles.timeButtonText, !startTimeSet && styles.timeButtonTextDisabled]}>
+            {formatTime(endTime)}
+          </Text>
         </TouchableOpacity>
+        {!startTimeSet && (
+          <Text style={styles.helperText}>{t('addSession.selectStartFirst')}</Text>
+        )}
         {showEndPicker && (
           <DateTimePicker
             value={endTime}
@@ -165,6 +199,7 @@ export default function AddSessionScreen({ route, navigation }) {
             is24Hour={true}
             display="default"
             onChange={onEndTimeChange}
+            minimumDate={startTime}
           />
         )}
 
@@ -238,9 +273,24 @@ const styles = StyleSheet.create({
     padding: theme.space[3],
     marginBottom: theme.space[4],
   },
+  timeButtonDisabled: {
+    backgroundColor: theme.colors.disabled || '#E5E7EB',
+    borderColor: theme.colors.disabled || '#E5E7EB',
+    opacity: 0.6,
+  },
   timeButtonText: {
     fontSize: theme.typography.fontSize.md,
     color: theme.colors.text.primary,
+  },
+  timeButtonTextDisabled: {
+    color: theme.colors.text.secondary || '#9CA3AF',
+  },
+  helperText: {
+    fontSize: theme.typography.fontSize.sm,
+    color: theme.colors.text.secondary || '#9CA3AF',
+    fontStyle: 'italic',
+    marginTop: -theme.space[3],
+    marginBottom: theme.space[4],
   },
   buttonPrimary: theme.components.buttonPrimary,
   buttonPrimaryText: {
