@@ -8,6 +8,7 @@ import { useUser } from '../contexts/UserContext';
 import { theme } from '../lib/theme';
 import { signInWithOAuth, signOut } from '../lib/auth';
 import { authManager } from '../lib/authManager';
+import { useTranslation } from '../contexts/LanguageContext';
 
 const NEVER_ASK_AGAIN_KEY = '@presence_app:never_ask_login';
 
@@ -27,6 +28,7 @@ type RootStackParamList = {
 type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
 
 const AuthScreen: React.FC = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState<boolean>(false);
   const [neverAskAgain, setNeverAskAgain] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -88,11 +90,11 @@ const AuthScreen: React.FC = () => {
           routes: [{ name: 'Home' }],
         });
       } else {
-        Alert.alert('Erreur', 'Connexion annulée ou échouée');
+        Alert.alert(t('common.error'), t('auth.loginError'));
       }
     } catch (error: any) {
       console.error('[AuthScreen] ❌ OAuth error:', error);
-      Alert.alert('Erreur', error.message || 'Une erreur est survenue');
+      Alert.alert(t('common.error'), error.message || t('auth.loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -105,9 +107,9 @@ const AuthScreen: React.FC = () => {
       // Invalidate cache and update state
       authManager.invalidateCache();
       setIsAuthenticated(false);
-      Alert.alert('Succès', 'Déconnexion réussie');
+      Alert.alert(t('common.success'), t('auth.signOutSuccess'));
     } catch (error: any) {
-      Alert.alert('Erreur', error.message || 'Erreur lors de la déconnexion');
+      Alert.alert(t('common.error'), error.message || t('auth.signOutError'));
     } finally {
       setLoading(false);
     }
@@ -139,11 +141,11 @@ const AuthScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Bienvenue</Text>
+        <Text style={styles.title}>{t('auth.welcome')}</Text>
         <Text style={styles.authStatus}>
-          {isAuthenticated ? '🟢 Logged in' : '🔴 Offline'}
+          {isAuthenticated ? t('auth.loggedIn') : t('auth.offline')}
         </Text>
-        <Text style={styles.subtitle}>Connectez-vous pour synchroniser vos données</Text>
+        <Text style={styles.subtitle}>{t('auth.subtitle')}</Text>
 
         <TouchableOpacity
           style={[styles.googleButton, loading && styles.buttonDisabled]}
@@ -155,7 +157,7 @@ const AuthScreen: React.FC = () => {
               <Text style={styles.googleIcon}>G</Text>
             </View>
             <Text style={styles.googleButtonText}>
-              {loading ? 'Connexion...' : 'Se connecter avec Google'}
+              {loading ? t('auth.connecting') : t('auth.googleSignIn')}
             </Text>
           </View>
         </TouchableOpacity>
@@ -166,7 +168,7 @@ const AuthScreen: React.FC = () => {
           disabled={loading}
         >
           <Text style={styles.signOutButtonText}>
-            Se déconnecter
+            {t('auth.signOut')}
           </Text>
         </TouchableOpacity>
 
@@ -179,7 +181,7 @@ const AuthScreen: React.FC = () => {
           onPress={handleDoNotLogin}
           disabled={loading}
         >
-          <Text style={styles.skipButtonText}>Ne pas se connecter</Text>
+          <Text style={styles.skipButtonText}>{t('auth.doNotLogin')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -187,9 +189,9 @@ const AuthScreen: React.FC = () => {
           onPress={() => setNeverAskAgain(!neverAskAgain)}
         >
           <View style={[styles.checkbox, neverAskAgain && styles.checkboxChecked]}>
-            {neverAskAgain && <Text style={styles.checkmark}>✓</Text>}
+            {neverAskAgain && <Text style={styles.checkboxIcon}>✓</Text>}
           </View>
-          <Text style={styles.checkboxLabel}>Ne plus me demander</Text>
+          <Text style={styles.checkboxLabel}>{t('auth.neverAskAgain')}</Text>
         </TouchableOpacity>
       </View>
     </View>

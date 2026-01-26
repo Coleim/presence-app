@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share, Alert } from 'react-native';
 import { syncService } from '../lib/syncService';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function ShareClubScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { clubId, clubName } = route.params;
   const [shareCode, setShareCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,7 +20,7 @@ export default function ShareClubScreen({ route, navigation }: any) {
       setShareCode(code);
     } catch (error) {
       console.error('Error loading share code:', error);
-      Alert.alert('Erreur', 'Impossible de charger le code de partage');
+      Alert.alert(t('common.error'), t('share.errorLoading'));
     } finally {
       setLoading(false);
     }
@@ -29,8 +31,8 @@ export default function ShareClubScreen({ route, navigation }: any) {
 
     try {
       await Share.share({
-        message: `Rejoignez mon club "${clubName}" sur l'app de présences!\n\nCode: ${shareCode}\n\nUtilisez l'option "Rejoindre un club" dans l'app.`,
-        title: `Invitation club: ${clubName}`,
+        message: `${t('share.shareMessage').replace('{{clubName}}', clubName).replace('{{code}}', shareCode)}`,
+        title: `${t('share.shareMessageTitle').replace('{{clubName}}', clubName)}`,
       });
     } catch (error) {
       console.error('Error sharing:', error);
@@ -43,8 +45,8 @@ export default function ShareClubScreen({ route, navigation }: any) {
     // Note: On React Native, you'd use @react-native-clipboard/clipboard
     // For now, just show an alert
     Alert.alert(
-      'Code copié',
-      `Code: ${shareCode}\n\nPartagez ce code avec les autres enseignants pour qu'ils puissent rejoindre le club.`
+      t('share.copied'),
+      `${t('share.shareCode')}: ${shareCode}\n\n${t('share.copiedMessage')}`
     );
   };
 
@@ -59,12 +61,12 @@ export default function ShareClubScreen({ route, navigation }: any) {
   if (!shareCode) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Code de partage non disponible</Text>
+        <Text style={styles.errorText}>{t('share.codeNotAvailable')}</Text>
         <TouchableOpacity
           style={styles.button}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.buttonText}>Retour</Text>
+          <Text style={styles.buttonText}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -72,16 +74,16 @@ export default function ShareClubScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Partager le club</Text>
+      <Text style={styles.title}>{t('share.title')}</Text>
       <Text style={styles.subtitle}>{clubName}</Text>
 
       <View style={styles.codeContainer}>
-        <Text style={styles.codeLabel}>Code de partage</Text>
+        <Text style={styles.codeLabel}>{t('share.shareCode')}</Text>
         <View style={styles.codeBox}>
           <Text style={styles.codeText}>{shareCode}</Text>
         </View>
         <Text style={styles.codeHint}>
-          Les autres enseignants peuvent rejoindre ce club avec ce code
+          {t('share.description')}
         </Text>
       </View>
 
@@ -89,7 +91,7 @@ export default function ShareClubScreen({ route, navigation }: any) {
         style={styles.button}
         onPress={handleShare}
       >
-        <Text style={styles.buttonText}>📤 Partager le code</Text>
+        <Text style={styles.buttonText}>{t('share.shareButton')}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -97,7 +99,7 @@ export default function ShareClubScreen({ route, navigation }: any) {
         onPress={copyToClipboard}
       >
         <Text style={[styles.buttonText, styles.buttonTextSecondary]}>
-          📋 Copier le code
+          {t('share.copyButton')}
         </Text>
       </TouchableOpacity>
 

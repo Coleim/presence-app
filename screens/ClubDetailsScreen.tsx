@@ -4,10 +4,13 @@ import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { syncService } from '../lib/syncService';
 import { authManager } from '../lib/authManager';
+import { LanguageSelector } from '../components/LanguageSelector';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function ClubDetailsScreen({ route, navigation }: any) {
   const { club } = route.params;
+  const { t, translateDay } = useTranslation();
   const [sessions, setSessions] = useState<any[]>([]);
   const [participants, setParticipants] = useState<any[]>([]);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -127,12 +130,12 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
 
   const deleteClub = async () => {
     Alert.alert(
-      'Supprimer le club',
-      'Êtes-vous sûr de vouloir supprimer ce club ? Cette action est irréversible.',
+      t('club.deleteClub'),
+      t('club.confirmDelete'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -144,7 +147,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
               navigation.goBack();
             } catch (error) {
               console.error('[ClubDetails] Error deleting club:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer le club');
+              Alert.alert(t('common.error'), t('club.errorDeletingClub'));
             }
           }
         }
@@ -154,12 +157,12 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
 
   const deleteSession = async (sessionId: string, sessionName: string) => {
     Alert.alert(
-      'Supprimer la session',
-      `Voulez-vous supprimer la session ${sessionName} ?`,
+      `${t('common.delete')} ${t('club.session')}`,
+      `${t('club.confirmDeleteSession')} ${sessionName} ?`,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             // Wait for local delete to complete
@@ -175,10 +178,10 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
 
   const resetStats = async () => {
     Alert.alert(
-      'Démarrer l\'année',
-      'Cette action va réinitialiser toutes les statistiques de présence. Les présences ne seront comptabilisées qu\'à partir d\'aujourd\'hui. Cette action est irréversible.\n\nVoulez-vous continuer ?',
+      t('club.startYear'),
+      t('club.confirmReset'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
           text: 'Réinitialiser',
           style: 'destructive',
@@ -189,7 +192,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             const clubs = await dataService.getClubs();
             const updatedClub = clubs.find(c => c.id === club.id);
             
-            Alert.alert('Succès', 'Les statistiques ont été réinitialisées.');
+            Alert.alert(t('common.success'), t('club.statsReset'));
             
             // Update navigation params with fresh club data
             if (updatedClub) {
@@ -205,7 +208,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
     Keyboard.dismiss();
     
     if (!editedName.trim()) {
-      Alert.alert('Erreur', 'Le nom du club ne peut pas être vide.');
+      Alert.alert(t('common.error'), 'Le nom du club ne peut pas être vide.');
       setEditedName(club.name);
       setIsEditingName(false);
       return;
@@ -236,11 +239,11 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Détails du club</Text>
+          <Text style={styles.headerTitle}>{t('club.title')}</Text>
         </View>
       </View>
 
@@ -301,7 +304,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             >
               <View style={styles.buttonWithIcon}>
                 <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
-                <Text style={styles.buttonOutlineText}>Ajouter une session</Text>
+                <Text style={styles.buttonOutlineText}>{t('club.addSession')}</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -313,7 +316,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           >
             <View style={styles.buttonWithIcon}>
               <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonOutlineText}>Ajouter un participant</Text>
+              <Text style={styles.buttonOutlineText}>{t('club.addParticipant')}</Text>
             </View>
           </TouchableOpacity>
 
@@ -323,34 +326,34 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           >
             <View style={styles.buttonWithIcon}>
               <Feather name="bar-chart-2" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonOutlineText}>Voir les statistiques</Text>
+              <Text style={styles.buttonOutlineText}>{t('club.stats')}</Text>
             </View>
           </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sessions</Text>
+          <Text style={styles.sectionTitle}>{t('club.sessions')}</Text>
           <FlatList
             data={sessions}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.listItem}
-                onLongPress={isOwner ? () => deleteSession(item.id, `${item.day_of_week} ${item.start_time}-${item.end_time}`) : undefined}
+                onLongPress={isOwner ? () => deleteSession(item.id, `${translateDay(item.day_of_week)} ${item.start_time}-${item.end_time}`) : undefined}
               >
-                <Text style={styles.listItemText}>
-                  {item.day_of_week} {item.start_time}-{item.end_time}
+                <Text style={styles.sessionText}>
+                  {translateDay(item.day_of_week)} {item.start_time}-{item.end_time}
                 </Text>
-                {!isOwner && <Text style={styles.ownerOnlyHint}>(seul le propriétaire peut supprimer)</Text>}
+                {!isOwner && <Text style={styles.ownerOnlyHint}>{t('club.ownerOnly')}</Text>}
               </TouchableOpacity>
             )}
             scrollEnabled={false}
-            ListEmptyComponent={<Text style={styles.emptyText}>Aucune session</Text>}
+            ListEmptyComponent={<Text style={styles.emptyText}>{t('club.noSessions')}</Text>}
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Participants</Text>
+          <Text style={styles.sectionTitle}>{t('club.participants')}</Text>
           <FlatList
             data={participants}
             keyExtractor={(item) => item.id.toString()}
@@ -365,7 +368,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
                   </Text>
                   {item.is_long_term_sick && (
                     <View style={styles.sickBadge}>
-                      <Text style={styles.sickBadgeText}>Malade</Text>
+                      <Text style={styles.sickBadgeText}>🤒</Text>
                     </View>
                   )}
                 </View>
@@ -373,20 +376,20 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
               </TouchableOpacity>
             )}
             scrollEnabled={false}
-            ListEmptyComponent={<Text style={styles.emptyText}>Aucun participant</Text>}
+            ListEmptyComponent={<Text style={styles.emptyText}>{t('club.noParticipants')}</Text>}
           />
         </View>
 
         {/* Admin Section - Only owner can reset stats */}
         {isOwner && (
           <View style={styles.adminSection}>
-            <Text style={styles.adminSectionTitle}>Administration</Text>
+            <Text style={styles.adminSectionTitle}>{t('club.administration')}</Text>
             
             {/* Share Code */}
             {shareCode && (
               <View style={styles.adminRow}>
                 <View style={styles.adminRowContent}>
-                  <Text style={styles.adminRowLabel}>Code de partage</Text>
+                  <Text style={styles.adminRowLabel}>{t('club.shareCode')}</Text>
                   <Text style={styles.shareCodeText}>{shareCode}</Text>
                 </View>
                 <TouchableOpacity
@@ -398,15 +401,23 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
               </View>
             )}
             
+            {/* Language Selector */}
+            <View style={styles.adminRow}>
+              <View style={styles.adminRowContent}>
+                <Text style={styles.adminRowLabel}>{t('club.language')}</Text>
+              </View>
+              <LanguageSelector />
+            </View>
+            
             <TouchableOpacity
               style={styles.adminRow}
               onPress={resetStats}
             >
               <View style={styles.adminRowContent}>
-                <Text style={styles.adminRowLabel}>Démarrer l'année</Text>
+                <Text style={styles.adminRowLabel}>{t('club.startYear')}</Text>
                 {club.stats_reset_date && (
                   <Text style={styles.adminRowHint}>
-                    Stats depuis le {new Date(club.stats_reset_date).toLocaleDateString('fr-FR')}
+                    {t('club.statsSince')} {new Date(club.stats_reset_date).toLocaleDateString('fr-FR')}
                   </Text>
                 )}
               </View>
@@ -419,7 +430,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         {isOwner && (
           <View style={styles.dangerContainer}>
             <TouchableOpacity style={styles.buttonDanger} onPress={deleteClub}>
-              <Text style={styles.buttonDangerText}>Supprimer le club</Text>
+              <Text style={styles.buttonDangerText}>{t('club.deleteClub')}</Text>
             </TouchableOpacity>
           </View>
         )}

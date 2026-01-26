@@ -7,11 +7,13 @@ import { usageService } from '../lib/usageService';
 import { hasReachedSessionsLimit, getLimitMessage, USAGE_LIMITS, shouldShowWarning } from '../lib/usageLimits';
 import { UsageBadge } from '../components/UsageBadge';
 import { UpgradePrompt } from '../components/UpgradePrompt';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function AddSessionScreen({ route, navigation }) {
   const { clubId } = route.params;
-  const [day, setDay] = useState('Lundi');
+  const { t, language } = useTranslation();
+  const [day, setDay] = useState(language === 'fr' ? 'Lundi' : 'Monday');
   const [startTime, setStartTime] = useState(new Date(2000, 0, 1, 9, 0)); // 9:00 AM
   const [endTime, setEndTime] = useState(new Date(2000, 0, 1, 10, 0)); // 10:00 AM
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -58,9 +60,9 @@ export default function AddSessionScreen({ route, navigation }) {
     // Check limit before adding
     if (hasReachedSessionsLimit(sessionCount)) {
       Alert.alert(
-        'Limite atteinte',
-        getLimitMessage('sessions') + '\n\nPassez à la version Premium pour des créneaux illimités.',
-        [{ text: 'OK', style: 'cancel' }]
+        t('limits.limitReached'),
+        getLimitMessage('sessions') + '\n\n' + t('limits.upgradeMessage'),
+        [{ text: t('common.ok'), style: 'cancel' }]
       );
       return;
     }
@@ -76,11 +78,11 @@ export default function AddSessionScreen({ route, navigation }) {
       // Handle database constraint errors
       if (error.message && error.message.includes('cannot have more than 10 sessions')) {
         Alert.alert(
-          'Limite atteinte',
-          getLimitMessage('sessions') + '\n\nPassez à la version Premium pour des créneaux illimités.'
+          t('limits.limitReached'),
+          getLimitMessage('sessions') + '\n\n' + t('limits.upgradeMessage')
         );
       } else {
-        Alert.alert('Erreur', 'Impossible d\'ajouter la session. Veuillez réessayer.');
+        Alert.alert(t('common.error'), t('addSession.error'));
       }
     }
   };
@@ -90,11 +92,11 @@ export default function AddSessionScreen({ route, navigation }) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Ajouter une session</Text>
+          <Text style={styles.headerTitle}>{t('addSession.title')}</Text>
         </View>
       </View>
 
@@ -104,7 +106,7 @@ export default function AddSessionScreen({ route, navigation }) {
           <UsageBadge
             current={sessionCount}
             limit={USAGE_LIMITS.SESSIONS_PER_CLUB}
-            label="Créneaux dans ce club"
+            label={t('limits.sessionsInClub')}
           />
         )}
 
@@ -114,13 +116,13 @@ export default function AddSessionScreen({ route, navigation }) {
             message={
               hasReachedSessionsLimit(sessionCount)
                 ? getLimitMessage('sessions')
-                : `Vous approchez de la limite (${sessionCount}/${USAGE_LIMITS.SESSIONS_PER_CLUB})`
+                : t('limits.approaching') + ` (${sessionCount}/${USAGE_LIMITS.SESSIONS_PER_CLUB})`
             }
             style={styles.upgradePrompt}
           />
         )}
 
-        <Text style={styles.label}>Jour de la semaine</Text>
+        <Text style={styles.label}>{t('addSession.dayOfWeek')}</Text>
         <View style={styles.pickerContainer}>
           <Picker
             selectedValue={day}
@@ -128,17 +130,17 @@ export default function AddSessionScreen({ route, navigation }) {
             style={styles.picker}
             itemStyle={styles.pickerItem}
           >
-            <Picker.Item label="Lundi" value="Lundi" />
-            <Picker.Item label="Mardi" value="Mardi" />
-            <Picker.Item label="Mercredi" value="Mercredi" />
-            <Picker.Item label="Jeudi" value="Jeudi" />
-            <Picker.Item label="Vendredi" value="Vendredi" />
-            <Picker.Item label="Samedi" value="Samedi" />
-            <Picker.Item label="Dimanche" value="Dimanche" />
+            <Picker.Item label={t('days.monday')} value={language === 'fr' ? 'Lundi' : 'Monday'} />
+            <Picker.Item label={t('days.tuesday')} value={language === 'fr' ? 'Mardi' : 'Tuesday'} />
+            <Picker.Item label={t('days.wednesday')} value={language === 'fr' ? 'Mercredi' : 'Wednesday'} />
+            <Picker.Item label={t('days.thursday')} value={language === 'fr' ? 'Jeudi' : 'Thursday'} />
+            <Picker.Item label={t('days.friday')} value={language === 'fr' ? 'Vendredi' : 'Friday'} />
+            <Picker.Item label={t('days.saturday')} value={language === 'fr' ? 'Samedi' : 'Saturday'} />
+            <Picker.Item label={t('days.sunday')} value={language === 'fr' ? 'Dimanche' : 'Sunday'} />
           </Picker>
         </View>
 
-        <Text style={styles.label}>Heure de début</Text>
+        <Text style={styles.label}>{t('addSession.startTime')}</Text>
         <TouchableOpacity onPress={() => setShowStartPicker(true)} style={styles.timeButton}>
           <Text style={styles.timeButtonText}>{formatTime(startTime)}</Text>
         </TouchableOpacity>
@@ -152,7 +154,7 @@ export default function AddSessionScreen({ route, navigation }) {
           />
         )}
 
-        <Text style={styles.label}>Heure de fin</Text>
+        <Text style={styles.label}>{t('addSession.endTime')}</Text>
         <TouchableOpacity onPress={() => setShowEndPicker(true)} style={styles.timeButton}>
           <Text style={styles.timeButtonText}>{formatTime(endTime)}</Text>
         </TouchableOpacity>
@@ -167,7 +169,7 @@ export default function AddSessionScreen({ route, navigation }) {
         )}
 
         <TouchableOpacity style={styles.buttonPrimary} onPress={addSession}>
-          <Text style={styles.buttonPrimaryText}>Ajouter la session</Text>
+          <Text style={styles.buttonPrimaryText}>{t('addSession.add')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

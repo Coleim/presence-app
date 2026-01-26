@@ -4,7 +4,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProvider } from './contexts/UserContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import { dataService } from './lib/dataService';
+import LanguageSelectionScreen from './screens/LanguageSelectionScreen';
 import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
 import ClubListScreen from './screens/ClubListScreen';
@@ -21,8 +23,10 @@ import JoinClubScreen from './screens/JoinClubScreen';
 import ShareClubScreen from './screens/ShareClubScreen';
 
 const NEVER_ASK_AGAIN_KEY = '@presence_app:never_ask_login';
+const LANGUAGE_SELECTED_KEY = '@presence_app:language_selected';
 
 type RootStackParamList = {
+  LanguageSelection: undefined;
   Auth: undefined;
   Home: undefined;
   ClubList: undefined;
@@ -43,7 +47,7 @@ const Stack = createStackNavigator<RootStackParamList>();
 
 function AppNavigator() {
   const navigationRef = useRef(null);
-  const [initialRoute, setInitialRoute] = useState<'Auth' | 'Home' | null>(null);
+  const [initialRoute, setInitialRoute] = useState<'LanguageSelection' | 'Auth' | 'Home' | null>(null);
 
   useEffect(() => {
     checkInitialRoute();
@@ -54,6 +58,17 @@ function AppNavigator() {
   const checkInitialRoute = async () => {
     try {
       console.log('[App] Checking initial route...');
+      
+      // Check if user has explicitly selected a language (onboarding complete)
+      const languageSelected = await AsyncStorage.getItem(LANGUAGE_SELECTED_KEY);
+      console.log('[App] Language selected:', languageSelected);
+      
+      // If language not selected yet, show language selection first
+      if (!languageSelected) {
+        console.log('[App] First launch - showing language selection');
+        setInitialRoute('LanguageSelection');
+        return;
+      }
       
       // Vérifier si l'utilisateur a choisi de ne jamais se connecter
       const neverAskAgain = await AsyncStorage.getItem(NEVER_ASK_AGAIN_KEY);
@@ -72,7 +87,7 @@ function AppNavigator() {
       }
     } catch (error) {
       console.error('Error checking initial route:', error);
-      setInitialRoute('Auth');
+      setInitialRoute('LanguageSelection');
     }
   };
 
@@ -83,6 +98,7 @@ function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator initialRouteName={initialRoute}>
+        <Stack.Screen name="LanguageSelection" component={LanguageSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ClubList" component={ClubListScreen} options={{ headerShown: false }} />
@@ -105,9 +121,11 @@ function AppNavigator() {
 export default function App() {
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <UserProvider>
-        <AppNavigator />
-      </UserProvider>
+      <LanguageProvider>
+        <UserProvider>
+          <AppNavigator />
+        </UserProvider>
+      </LanguageProvider>
     </SafeAreaView>
   );
 }

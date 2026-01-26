@@ -6,10 +6,12 @@ import { usageService } from '../lib/usageService';
 import { hasReachedParticipantsLimit, getLimitMessage, USAGE_LIMITS, shouldShowWarning } from '../lib/usageLimits';
 import { UsageBadge } from '../components/UsageBadge';
 import { UpgradePrompt } from '../components/UpgradePrompt';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function AddParticipantScreen({ route, navigation }) {
   const { clubId } = route.params;
+  const { t, translateDay } = useTranslation();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [sessions, setSessions] = useState([]);
@@ -60,16 +62,16 @@ export default function AddParticipantScreen({ route, navigation }) {
 
   const addParticipant = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer le prénom et le nom');
+      Alert.alert(t('common.error'), t('addParticipant.nameRequired'));
       return;
     }
 
     // Check limit before adding
     if (hasReachedParticipantsLimit(participantCount)) {
       Alert.alert(
-        'Limite atteinte',
-        getLimitMessage('participants') + '\n\nPassez à la version Premium pour des participants illimités.',
-        [{ text: 'OK', style: 'cancel' }]
+        t('limits.limitReached'),
+        getLimitMessage('participants') + '\n\n' + t('limits.upgradeMessage'),
+        [{ text: t('common.ok'), style: 'cancel' }]
       );
       return;
     }
@@ -96,11 +98,11 @@ export default function AddParticipantScreen({ route, navigation }) {
       // Handle database constraint errors
       if (error.message && error.message.includes('cannot have more than 30 participants')) {
         Alert.alert(
-          'Limite atteinte',
-          getLimitMessage('participants') + '\n\nPassez à la version Premium pour des participants illimités.'
+          t('limits.limitReached'),
+          getLimitMessage('participants') + '\n\n' + t('limits.upgradeMessage')
         );
       } else {
-        Alert.alert('Erreur', 'Impossible d\'ajouter le participant: ' + error.message);
+        Alert.alert(t('common.error'), t('addParticipant.error') + ': ' + error.message);
       }
     }
   };
@@ -110,11 +112,11 @@ export default function AddParticipantScreen({ route, navigation }) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Ajouter un participant</Text>
+          <Text style={styles.headerTitle}>{t('addParticipant.title')}</Text>
         </View>
       </View>
 
@@ -124,7 +126,7 @@ export default function AddParticipantScreen({ route, navigation }) {
           <UsageBadge
             current={participantCount}
             limit={USAGE_LIMITS.PARTICIPANTS_PER_CLUB}
-            label="Participants dans ce club"
+            label={t('limits.participantsInClub')}
           />
         )}
 
@@ -134,34 +136,33 @@ export default function AddParticipantScreen({ route, navigation }) {
             message={
               hasReachedParticipantsLimit(participantCount)
                 ? getLimitMessage('participants')
-                : `Vous approchez de la limite (${participantCount}/${USAGE_LIMITS.PARTICIPANTS_PER_CLUB})`
+                : t('limits.approaching') + ` (${participantCount}/${USAGE_LIMITS.PARTICIPANTS_PER_CLUB})`
             }
             style={styles.upgradePrompt}
           />
         )}
 
-        <Text style={styles.label}>Prénom</Text>
+        <Text style={styles.label}>{t('addParticipant.firstName')}</Text>
         <TextInput
-          placeholder="Entrez le prénom"
+          placeholder={t('addParticipant.firstNamePlaceholder')}
           value={firstName}
           onChangeText={setFirstName}
           style={styles.input}
           placeholderTextColor={theme.colors.text.secondary}
         />
 
-        <Text style={styles.label}>Nom</Text>
+        <Text style={styles.label}>{t('addParticipant.lastName')}</Text>
         <TextInput
-          placeholder="Entrez le nom"
+          placeholder={t('addParticipant.lastNamePlaceholder')}
           value={lastName}
           onChangeText={setLastName}
           style={styles.input}
           placeholderTextColor={theme.colors.text.secondary}
         />
 
-        <Text style={styles.sectionTitle}>Sessions régulières (optionnel)</Text>
+        <Text style={styles.sectionTitle}>{t('addParticipant.regularSessions')}</Text>
         <Text style={styles.sectionDescription}>
-          Sélectionnez les sessions auxquelles ce participant vient habituellement.
-          Cela permettra de calculer son taux de présence.
+          {t('addParticipant.regularSessionsDesc')}
         </Text>
 
         {sessions.map((session) => (
@@ -182,13 +183,13 @@ export default function AddParticipantScreen({ route, navigation }) {
               )}
             </View>
             <Text style={styles.sessionLabel}>
-              {session.day_of_week} {session.start_time}-{session.end_time}
+              {translateDay(session.day_of_week)} {session.start_time}-{session.end_time}
             </Text>
           </TouchableOpacity>
         ))}
 
         <TouchableOpacity style={styles.buttonPrimary} onPress={addParticipant}>
-          <Text style={styles.buttonPrimaryText}>Ajouter le participant</Text>
+          <Text style={styles.buttonPrimaryText}>{t('addParticipant.add')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

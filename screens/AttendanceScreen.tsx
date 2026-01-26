@@ -3,8 +3,10 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Share, Alert } from
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function AttendanceScreen({ route, navigation }: any) {
+  const { t, language, translateDay } = useTranslation();
   const { session, date } = route.params;
   console.log('[AttendanceScreen] Received params - session.id:', session?.id, 'date:', date);
   const [participants, setParticipants] = useState<any[]>([]);
@@ -71,27 +73,27 @@ export default function AttendanceScreen({ route, navigation }: any) {
       const presentParticipants = participants.filter(p => attendance[p.id]);
       const absentParticipants = participants.filter(p => !attendance[p.id] && p.preferred_session_ids?.includes(session.id));
       
-      const formattedDate = new Date(date).toLocaleDateString('fr-FR', { 
+      const formattedDate = new Date(date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { 
         weekday: 'long', 
         day: 'numeric', 
         month: 'long',
         year: 'numeric'
       });
       
-      let message = `📊 Présences du ${formattedDate}\n`;
-      message += `${session.day_of_week} ${session.start_time} à ${session.end_time}\n\n`;
-      message += `✅ Présents (${presentCount}/${assignedParticipantsCount}):\n`;
+      let message = `${t('attendance.shareTitle')} ${formattedDate}\n`;
+      message += `${translateDay(session.day_of_week)} ${session.start_time} à ${session.end_time}\n\n`;
+      message += `${t('attendance.sharePresent')} (${presentCount}/${assignedParticipantsCount}):\n`;
       
       if (presentParticipants.length > 0) {
         presentParticipants.forEach(p => {
           message += `  • ${p.first_name} ${p.last_name.toUpperCase()}\n`;
         });
       } else {
-        message += `  Aucun présent\n`;
+        message += `  ${t('attendance.noPresent')}\n`;
       }
       
       if (absentParticipants.length > 0) {
-        message += `\n❌ Absents (${absentParticipants.length}):\n`;
+        message += `\n${t('attendance.shareAbsent')} (${absentParticipants.length}):\n`;
         absentParticipants.forEach(p => {
           message += `  • ${p.first_name} ${p.last_name.toUpperCase()}\n`;
         });
@@ -109,7 +111,7 @@ export default function AttendanceScreen({ route, navigation }: any) {
         }
       }
     } catch (error: any) {
-      Alert.alert('Erreur', 'Impossible de partager les présences.');
+      Alert.alert(t('common.error'), t('attendance.errorSharing'));
     }
   };
 
@@ -129,13 +131,13 @@ export default function AttendanceScreen({ route, navigation }: any) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-            <Text style={styles.smallBackButtonText}>← Retour</Text>
+            <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
           </TouchableOpacity>
           {/* Main Header */}
           <View style={styles.mainHeader}>
             <View style={styles.mainHeaderContent}>
               <Text style={styles.mainHeaderTitle}>
-                Présence du {new Date(date).toLocaleDateString('fr-FR', {
+                {t('attendance.attendanceOn')} {new Date(date).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', {
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric'
@@ -151,10 +153,10 @@ export default function AttendanceScreen({ route, navigation }: any) {
         {/* Attendance Header with count and uncheck button */}
       <View style={styles.attendanceHeader}>
           <Text style={styles.presentCountText}>
-            Présents: {presentCount} / {assignedParticipantsCount}
+            {t('attendance.presentCount')}: {presentCount} / {assignedParticipantsCount}
           </Text>
           <TouchableOpacity style={styles.uncheckButton} onPress={uncheckAll}>
-            <Text style={styles.uncheckButtonText}>Tout décocher</Text>
+            <Text style={styles.uncheckButtonText}>{t('attendance.uncheckAll')}</Text>
           </TouchableOpacity>
         </View>
 

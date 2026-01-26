@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, Share, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function StatsScreen({ route, navigation }: any) {
   const { club } = route.params;
+  const { t } = useTranslation();
   const [stats, setStats] = useState<any[]>([]);
 
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function StatsScreen({ route, navigation }: any) {
 
   const shareStats = async () => {
     try {
-      let message = `Statistiques de présence\n${club.name}\n\n`;
+      let message = `${t('stats.shareTitle')}\n${club.name}\n\n`;
       
       if (club.stats_reset_date) {
         const resetDate = new Date(club.stats_reset_date).toLocaleDateString('fr-FR', {
@@ -84,10 +86,10 @@ export default function StatsScreen({ route, navigation }: any) {
           month: 'long',
           year: 'numeric'
         });
-        message += `Période: depuis le ${resetDate}\n\n`;
+        message += `${t('stats.sharePeriod')} ${resetDate}\n\n`;
       }
       
-      message += `🏆 Classement\n`;
+      message += `${t('stats.shareRanking')}\n`;
       message += `${'='.repeat(12)}\n\n`;
       
       stats.forEach((participant, index) => {
@@ -97,19 +99,19 @@ export default function StatsScreen({ route, navigation }: any) {
         message += `${medal} ${participant.first_name} ${participant.last_name.toUpperCase()}\n`;
         
         if (participant.hasAssignedSessions) {
-          message += `   • Taux: ${participant.percentage}%\n`;
-          message += `   • Présences: ${participant.effectivePresent}/${participant.totalAssigned} sessions\n`;
+          message += `   • ${t('stats.shareRate')} ${participant.percentage}%\n`;
+          message += `   • ${t('stats.bonusPresences')}: ${participant.effectivePresent}/${participant.totalAssigned} sessions\n`;
           
           if (participant.bonusUsed > 0) {
-            message += `   • Bonus utilisés: ${participant.bonusUsed}\n`;
+            message += `   • ${t('stats.shareBonusUsed')} ${participant.bonusUsed}\n`;
           }
           if (participant.bonusRemaining > 0) {
-            message += `   • Bonus restants: ${participant.bonusRemaining}\n`;
+            message += `   • ${t('stats.shareBonusRemaining')} ${participant.bonusRemaining}\n`;
           }
         } else {
-          message += `   • Aucune session assignée\n`;
+          message += `   • ${t('stats.noAssignedSessions')}\n`;
           if (participant.bonusPresences > 0) {
-            message += `   • Présences bonus: ${participant.bonusPresences}\n`;
+            message += `   • ${t('stats.bonusPresences')} bonus: ${participant.bonusPresences}\n`;
           }
         }
         message += `\n`;
@@ -123,7 +125,7 @@ export default function StatsScreen({ route, navigation }: any) {
         console.info('Stats shared successfully');
       }
     } catch (error: any) {
-      Alert.alert('Erreur', 'Impossible de partager les statistiques.');
+      Alert.alert(t('common.error'), 'Impossible de partager les statistiques.');
     }
   };
 
@@ -132,11 +134,11 @@ export default function StatsScreen({ route, navigation }: any) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Statistiques</Text>
+          <Text style={styles.headerTitle}>{t('stats.title')}</Text>
         </View>
         <TouchableOpacity onPress={shareStats} style={styles.shareButton}>
           <Feather name="share-2" size={20} color="#FFFFFF" />
@@ -146,7 +148,7 @@ export default function StatsScreen({ route, navigation }: any) {
       <View style={styles.container}>
         <View style={styles.contentHeader}>
           <Text style={styles.clubTitle}>{club.name}</Text>
-          <Text style={styles.sectionTitle}>Taux de présence par participant</Text>
+          <Text style={styles.sectionTitle}>{t('stats.attendanceRate')}</Text>
         </View>
         <FlatList
           contentContainerStyle={styles.listContent}
@@ -173,7 +175,7 @@ export default function StatsScreen({ route, navigation }: any) {
                     )}
                     {item.bonusRemaining > 0 && (
                       <Text style={styles.bonusText}>
-                        +{item.bonusRemaining} bonus restant{item.bonusRemaining > 1 ? 's' : ''}
+                        +{item.bonusRemaining} {item.bonusRemaining > 1 ? t('stats.bonusRemainingPlural') : t('stats.bonusRemaining')}
                       </Text>
                     )}
                     <Text style={styles.percentageText}>
@@ -183,11 +185,11 @@ export default function StatsScreen({ route, navigation }: any) {
                 ) : (
                   <>
                     <Text style={styles.attendanceText}>
-                      Aucune session assignée
+                      {t('stats.noAssignedSessions')}
                     </Text>
                     {item.bonusPresences > 0 && (
                       <Text style={styles.bonusHighlight}>
-                        {item.bonusPresences} présences
+                        {item.bonusPresences} {t('stats.bonusPresences')}
                       </Text>
                     )}
                   </>
@@ -195,7 +197,7 @@ export default function StatsScreen({ route, navigation }: any) {
               </View>
             </View>
           )}
-          ListEmptyComponent={<Text style={styles.emptyText}>Aucune donnée disponible</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>{t('stats.noData')}</Text>}
         />
       </View>
     </View>

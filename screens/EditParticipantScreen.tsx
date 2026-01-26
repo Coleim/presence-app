@@ -4,8 +4,10 @@ import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function EditParticipantScreen({ route, navigation }: any) {
+  const { t, translateDay } = useTranslation();
   const { participant, clubId } = route.params;
   const [firstName, setFirstName] = useState(participant.first_name);
   const [lastName, setLastName] = useState(participant.last_name);
@@ -58,7 +60,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
 
   const saveParticipant = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert('Erreur', 'Le prénom et le nom sont requis.');
+      Alert.alert(t('common.error'), t('editParticipant.required'));
       return;
     }
 
@@ -74,22 +76,22 @@ export default function EditParticipantScreen({ route, navigation }: any) {
     await dataService.saveParticipant(updatedParticipant);
     await dataService.saveParticipantSessions(participant.id, selectedSessions);
 
-    Alert.alert('Succès', 'Le participant a été modifié.');
+    Alert.alert(t('common.success'), t('editParticipant.updated'));
     navigation.goBack();
   };
 
   const deleteParticipant = () => {
     Alert.alert(
-      'Supprimer le participant',
-      `Êtes-vous sûr de vouloir supprimer ${firstName} ${lastName} ?`,
+      t('editParticipant.delete'),
+      `${t('editParticipant.confirmDelete')} ${firstName} ${lastName} ?`,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             await dataService.deleteParticipant(participant.id);
-            Alert.alert('Succès', 'Participant supprimé.');
+            Alert.alert(t('common.success'), t('editParticipant.deleted'));
             navigation.goBack();
           }
         }
@@ -102,19 +104,19 @@ export default function EditParticipantScreen({ route, navigation }: any) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Modifier le participant</Text>
+          <Text style={styles.headerTitle}>{t('editParticipant.title')}</Text>
         </View>
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.sectionTitle}>Informations</Text>
+        <Text style={styles.sectionTitle}>{t('editParticipant.information')}</Text>
         
         <TextInput
           style={styles.input}
-          placeholder="Prénom *"
+          placeholder={t('editParticipant.firstNamePlaceholder')}
           placeholderTextColor={theme.colors.text.secondary}
           value={firstName}
           onChangeText={setFirstName}
@@ -122,7 +124,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
 
         <TextInput
           style={styles.input}
-          placeholder="Nom *"
+          placeholder={t('editParticipant.lastNamePlaceholder')}
           placeholderTextColor={theme.colors.text.secondary}
           value={lastName}
           onChangeText={setLastName}
@@ -130,9 +132,9 @@ export default function EditParticipantScreen({ route, navigation }: any) {
 
         <View style={styles.switchContainer}>
           <View style={styles.switchLabelContainer}>
-            <Text style={styles.switchLabel}>Malade longue durée</Text>
+            <Text style={styles.switchLabel}>{t('editParticipant.longTermSick')}</Text>
             <Text style={styles.switchDescription}>
-              Les absences ne comptent pas dans les statistiques
+              {t('editParticipant.longTermSickDesc')}
             </Text>
           </View>
           <Switch
@@ -143,9 +145,9 @@ export default function EditParticipantScreen({ route, navigation }: any) {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Sessions assignées</Text>
+        <Text style={styles.sectionTitle}>{t('editParticipant.sessionsAssigned')}</Text>
         <Text style={styles.sectionDescription}>
-          Sélectionnez les sessions auxquelles ce participant est inscrit
+          {t('editParticipant.sessionsDesc')}
         </Text>
 
         {sessions.map((session) => (
@@ -166,25 +168,25 @@ export default function EditParticipantScreen({ route, navigation }: any) {
               )}
             </View>
             <Text style={styles.sessionLabel}>
-              {session.day_of_week} {session.start_time}-{session.end_time}
+              {translateDay(session.day_of_week)} {session.start_time}-{session.end_time}
             </Text>
           </TouchableOpacity>
         ))}
 
         <TouchableOpacity style={styles.buttonPrimary} onPress={saveParticipant}>
-          <Text style={styles.buttonPrimaryText}>Enregistrer</Text>
+          <Text style={styles.buttonPrimaryText}>{t('editParticipant.update')}</Text>
         </TouchableOpacity>
 
         {/* Only owner can delete participants */}
         {isOwner && (
           <TouchableOpacity style={styles.buttonDanger} onPress={deleteParticipant}>
-            <Text style={styles.buttonDangerText}>Supprimer le participant</Text>
+            <Text style={styles.buttonDangerText}>{t('editParticipant.delete')}</Text>
           </TouchableOpacity>
         )}
         
         {!isOwner && (
           <Text style={styles.ownerOnlyHint}>
-            Seul le propriétaire du club peut supprimer des participants
+            {t('editParticipant.cannotDelete')}
           </Text>
         )}
       </ScrollView>

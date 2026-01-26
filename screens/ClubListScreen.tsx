@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function ClubListScreen({ navigation }) {
+  const { t } = useTranslation();
   const [clubs, setClubs] = useState([]);
 
   const fetchClubs = async () => {
@@ -33,25 +35,25 @@ export default function ClubListScreen({ navigation }) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Gérer les clubs</Text>
+          <Text style={styles.headerTitle}>{t('home.title')}</Text>
         </View>
       </View>
 
       {/* Content */}
       <View style={styles.contentContainer}>
         <TouchableOpacity style={styles.buttonPrimary} onPress={() => navigation.navigate('CreateClub')}>
-          <Text style={styles.buttonPrimaryText}>Créer un club</Text>
+          <Text style={styles.buttonPrimaryText}>{t('home.createClub')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.navigate('JoinClub')}>
-          <Text style={styles.buttonSecondaryText}>Rejoindre un club</Text>
+          <Text style={styles.buttonSecondaryText}>{t('home.joinClub')}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Mes clubs</Text>
+        <Text style={styles.sectionTitle}>{t('home.title')}</Text>
         <FlatList
           data={clubs}
           keyExtractor={(item) => item.id.toString()}
@@ -64,7 +66,7 @@ export default function ClubListScreen({ navigation }) {
               <Text style={styles.arrowIcon}>→</Text>
             </TouchableOpacity>
           )}
-          ListEmptyComponent={<Text style={styles.emptyText}>Aucun club pour le moment</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>{t('home.noClubs')}</Text>}
         />
       </View>
     </View>

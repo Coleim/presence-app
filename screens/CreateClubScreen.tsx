@@ -5,9 +5,11 @@ import { authManager } from '../lib/authManager';
 import { usageService } from '../lib/usageService';
 import { hasReachedClubLimit, getLimitMessage, USAGE_LIMITS } from '../lib/usageLimits';
 import { UpgradePrompt } from '../components/UpgradePrompt';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function CreateClubScreen({ navigation }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [canCreateClub, setCanCreateClub] = useState(true);
@@ -44,17 +46,17 @@ export default function CreateClubScreen({ navigation }) {
 
   const createClub = async () => {
     if (!name.trim()) {
-      alert('Please enter a club name');
+      alert(t('createClub.nameRequired'));
       return;
     }
 
     // Check limit before creating
     if (!canCreateClub) {
       Alert.alert(
-        'Limite atteinte',
-        getLimitMessage('club') + '\n\nPassez à la version Premium pour créer des clubs illimités.',
+        t('limits.limitReached'),
+        getLimitMessage('club') + '\n\n' + t('limits.upgradeMessage'),
         [
-          { text: 'OK', style: 'cancel' },
+          { text: t('common.ok'), style: 'cancel' },
         ]
       );
       return;
@@ -77,11 +79,11 @@ export default function CreateClubScreen({ navigation }) {
       // Handle database constraint errors
       if (error.message && error.message.includes('only own 1 club')) {
         Alert.alert(
-          'Limite atteinte',
-          getLimitMessage('club') + '\n\nPassez à la version Premium pour créer des clubs illimités.'
+          t('limits.limitReached'),
+          getLimitMessage('club') + '\n\n' + t('limits.upgradeMessage')
         );
       } else {
-        alert('Error creating club: ' + error.message);
+        alert(t('common.error') + ': ' + error.message);
       }
     }
   };
@@ -91,11 +93,11 @@ export default function CreateClubScreen({ navigation }) {
       {/* Header Container */}
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.smallBackButton}>
-          <Text style={styles.smallBackButtonText}>← Retour</Text>
+          <Text style={styles.smallBackButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
         {/* Main Header */}
         <View style={styles.mainHeader}>
-          <Text style={styles.headerTitle}>Créer un club</Text>
+          <Text style={styles.headerTitle}>{t('createClub.title')}</Text>
         </View>
       </View>
 
@@ -112,14 +114,14 @@ export default function CreateClubScreen({ navigation }) {
         {canCreateClub && !isLoading && clubsOwned > 0 && (
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>
-              Version gratuite: {clubsOwned}/{USAGE_LIMITS.CLUBS_PER_USER} club utilisé
+              {t('limits.freeVersion')} {clubsOwned}/{USAGE_LIMITS.CLUBS_PER_USER} {t('limits.clubUsed')}
             </Text>
           </View>
         )}
 
-        <Text style={styles.label}>Nom du club</Text>
+        <Text style={styles.label}>{t('createClub.name')}</Text>
         <TextInput
-          placeholder="Entrez le nom du club"
+          placeholder={t('createClub.namePlaceholder')}
           value={name}
           onChangeText={setName}
           style={styles.input}
@@ -127,9 +129,9 @@ export default function CreateClubScreen({ navigation }) {
           editable={canCreateClub}
         />
 
-        <Text style={styles.label}>Description (optionnel)</Text>
+        <Text style={styles.label}>{t('createClub.description')} ({t('common.optional')})</Text>
         <TextInput
-          placeholder="Entrez une description"
+          placeholder={t('createClub.descriptionPlaceholder')}
           value={description}
           onChangeText={setDescription}
           style={[styles.input, styles.textArea]}
@@ -145,7 +147,7 @@ export default function CreateClubScreen({ navigation }) {
           disabled={!canCreateClub || isLoading}
         >
           <Text style={styles.buttonPrimaryText}>
-            {isLoading ? 'Vérification...' : 'Créer le club'}
+            {isLoading ? t('createClub.checking') : t('createClub.create')}
           </Text>
         </TouchableOpacity>
       </ScrollView>

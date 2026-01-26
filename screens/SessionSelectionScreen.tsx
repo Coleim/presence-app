@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { dataService } from '../lib/dataService';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function SessionSelectionScreen({ route, navigation }) {
+  const { t, language } = useTranslation();
   const { club } = route.params;
   const [sessions, setSessions] = useState([]);
   const [upcomingSessions, setUpcomingSessions] = useState([]);
@@ -86,7 +88,7 @@ export default function SessionSelectionScreen({ route, navigation }) {
           keyExtractor={(item, index) => `${item.id}-${item.date}-${index}`}
           renderItem={({ item }) => {
             const sessionDate = new Date(item.date + 'T12:00:00'); // Add time to avoid timezone issues
-            const dayName = sessionDate.toLocaleDateString('fr-FR', { weekday: 'long' });
+            const dayName = sessionDate.toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'long' });
             const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
             
             return (
@@ -103,7 +105,7 @@ export default function SessionSelectionScreen({ route, navigation }) {
                     {item.start_time} - {item.end_time}
                   </Text>
                   <Text style={styles.sessionDate}>
-                    {sessionDate.toLocaleDateString('fr-FR', {
+                    {sessionDate.toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', {
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric'

@@ -4,9 +4,11 @@ import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { syncService } from '../lib/syncService';
 import { authManager } from '../lib/authManager';
+import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
 
 export default function HomeScreen({ navigation }: any) {
+  const { t, language, translateDay } = useTranslation();
   const [clubs, setClubs] = useState<any[]>([]);
   const [selectedClub, setSelectedClub] = useState<any>(null);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
@@ -50,10 +52,10 @@ export default function HomeScreen({ navigation }: any) {
         setIsSyncing(status.isSyncing);
         
         if (status.isSyncing) {
-          setSyncStatus('Synchronisation...');
+          setSyncStatus(t('home.syncing'));
         } else if (status.lastSync) {
           const minutes = Math.floor((Date.now() - status.lastSync.getTime()) / 60000);
-          setSyncStatus(minutes === 0 ? 'Synchronisé' : `Sync il y a ${minutes}min`);
+          setSyncStatus(minutes === 0 ? t('home.syncing') : `Sync ${minutes}min`);
           
           // Refresh data when sync completes
           if (wasSyncing && !status.isSyncing) {
@@ -193,12 +195,12 @@ export default function HomeScreen({ navigation }: any) {
         todayOnly.setHours(0, 0, 0, 0);
         
         if (nextDateOnly.getTime() === todayOnly.getTime()) {
-          displayDate = 'Aujourd\'hui';
+          displayDate = language === 'fr' ? 'Aujourd\'hui' : 'Today';
         } else if (nextDateOnly.getTime() === tomorrow.getTime()) {
-          displayDate = 'Demain';
+          displayDate = language === 'fr' ? 'Demain' : 'Tomorrow';
         } else {
           // Include day of week in the display
-          displayDate = nextDate.toLocaleDateString('fr-FR', { 
+          displayDate = nextDate.toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-US', { 
             weekday: 'long',
             day: 'numeric', 
             month: 'long'
@@ -275,15 +277,15 @@ export default function HomeScreen({ navigation }: any) {
     return (
       <View style={styles.screenContainer}>
         <View style={styles.container}>
-            <Text style={styles.title}>Aucun club pour le moment</Text>
-            <Text style={styles.subtitle}>Créez votre premier club !</Text>
+            <Text style={styles.title}>{t('home.noClubs')}</Text>
+            <Text style={styles.subtitle}>{t('home.createFirst')}</Text>
             <View style={styles.buttonContainer}>
               <TouchableOpacity 
                 style={[styles.buttonPrimary, isSyncing && styles.buttonDisabled]} 
                 onPress={() => navigation.navigate('CreateClub')}
                 disabled={isSyncing}
               >
-                <Text style={styles.buttonPrimaryText}>Créer un club</Text>
+                <Text style={styles.buttonPrimaryText}>{t('home.createClub')}</Text>
               </TouchableOpacity>
               {isAuthenticated && (
                 <TouchableOpacity 
@@ -291,12 +293,12 @@ export default function HomeScreen({ navigation }: any) {
                   onPress={() => navigation.navigate('JoinClub')}
                   disabled={isSyncing}
                 >
-                  <Text style={styles.buttonSecondaryText}>Rejoindre un club</Text>
+                  <Text style={styles.buttonSecondaryText}>{t('home.joinClub')}</Text>
                 </TouchableOpacity>
               )}
             </View>
             {isSyncing && (
-              <Text style={styles.syncingText}>Synchronisation en cours...</Text>
+              <Text style={styles.syncingText}>{t('home.syncing')}</Text>
             )}
           </View>
       </View>
@@ -332,7 +334,7 @@ export default function HomeScreen({ navigation }: any) {
 
       {/* Sessions List */}
       <View style={styles.container}>
-        <Text style={styles.sectionTitle}>Sessions à venir</Text>
+        <Text style={styles.sectionTitle}>{t('home.upcomingSessions')}</Text>
         <FlatList
           data={upcomingSessions}
           keyExtractor={(item) => `${item.id}-${item.date}`}
@@ -392,7 +394,7 @@ export default function HomeScreen({ navigation }: any) {
               </TouchableOpacity>
             );
           }}
-          ListEmptyComponent={<Text style={styles.emptyText}>Aucune session à venir</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>{t('home.noSessions')}</Text>}
         />
 
         <View style={styles.manageButtonContainer}>
@@ -406,7 +408,7 @@ export default function HomeScreen({ navigation }: any) {
               }
             }}
           >
-            <Text style={styles.manageClubButtonText}>Gérer le club</Text>
+            <Text style={styles.manageClubButtonText}>{t('club.administration')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -583,6 +585,13 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 4,
     textAlign: 'center',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.5,

@@ -3,8 +3,10 @@ import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert,
 import { dataService } from '../lib/dataService';
 import { authManager } from '../lib/authManager';
 import { theme } from '../lib/theme';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export default function JoinClubScreen({ navigation }) {
+  const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -21,18 +23,18 @@ export default function JoinClubScreen({ navigation }) {
   const joinClub = async () => {
     if (!isAuthenticated) {
       Alert.alert(
-        'Connexion requise',
-        'Vous devez être connecté pour rejoindre un club partagé.',
+        t('joinClub.loginRequired'),
+        t('joinClub.loginRequiredMessage'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Se connecter', onPress: () => navigation.navigate('Auth') }
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('auth.signIn'), onPress: () => navigation.navigate('Auth') }
         ]
       );
       return;
     }
 
     if (!code.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer un code de partage');
+      Alert.alert(t('common.error'), t('joinClub.enterCodeError'));
       return;
     }
 
@@ -41,16 +43,16 @@ export default function JoinClubScreen({ navigation }) {
       const club = await dataService.joinClubByCode(code.trim().toUpperCase());
       
       if (!club) {
-        Alert.alert('Erreur', 'Code de partage invalide ou club introuvable');
+        Alert.alert(t('common.error'), t('joinClub.invalidCodeError'));
         return;
       }
       
       Alert.alert(
-        'Succès',
-        `Vous avez rejoint le club "${club.name}" avec succès!`,
+        t('common.success'),
+        t('joinClub.joinSuccess').replace('{{clubName}}', club.name),
         [
           {
-            text: 'OK',
+            text: t('common.ok'),
             onPress: () => {
               // Navigate to the club details
               navigation.navigate('Home');
@@ -61,12 +63,12 @@ export default function JoinClubScreen({ navigation }) {
     } catch (error: any) {
       console.error('Error joining club:', error);
       
-      let errorMessage = 'Impossible de rejoindre le club. Vérifiez que le code est correct.';
+      let errorMessage = t('joinClub.joinError');
       if (error.message?.includes('Invalid share code')) {
-        errorMessage = 'Code de partage invalide';
+        errorMessage = t('joinClub.invalidCodeError');
       }
       
-      Alert.alert('Erreur', errorMessage);
+      Alert.alert(t('common.error'), errorMessage);
     } finally {
       setLoading(false);
     }
@@ -77,9 +79,9 @@ export default function JoinClubScreen({ navigation }) {
       {/* Header with back button */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Retour</Text>
+          <Text style={styles.backButtonText}>{t('common.back')}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Rejoindre un club</Text>
+        <Text style={styles.headerTitle}>{t('joinClub.title')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -87,16 +89,16 @@ export default function JoinClubScreen({ navigation }) {
         {!isAuthenticated && (
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
-              ⚠️ Vous devez être connecté pour rejoindre un club partagé
+              {t('joinClub.warning')}
             </Text>
           </View>
         )}
         
         <Text style={styles.description}>
-          Entrez le code partagé par le propriétaire du club pour le rejoindre.
+          {t('joinClub.description')}
         </Text>
 
-        <Text style={styles.label}>Code du club</Text>
+        <Text style={styles.label}>{t('joinClub.codeLabel')}</Text>
         <TextInput
           placeholder="Ex: ABC123"
           value={code}
