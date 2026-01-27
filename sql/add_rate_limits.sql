@@ -165,9 +165,7 @@ BEGIN
     IF length(NEW.last_name) > 100 THEN
       RAISE EXCEPTION 'Last name too long (max 100 characters)';
     END IF;
-    IF NEW.notes IS NOT NULL AND length(NEW.notes) > 1000 THEN
-      RAISE EXCEPTION 'Participant notes too long (max 1000 characters)';
-    END IF;
+    -- Note: notes column removed from schema
   END IF;
   
   RETURN NEW;

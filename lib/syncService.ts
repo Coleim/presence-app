@@ -808,26 +808,30 @@ class SyncService {
       if (existingIndex >= 0) {
         const localRecord = localRecords[existingIndex];
         
-        // Compare timestamps: only update if server is newer
-        const serverUpdated = serverRecord.updated_at || serverRecord.created_at;
-        const localUpdated = localRecord.updated_at || localRecord.created_at;
-        
-        if (serverUpdated && localUpdated) {
-          const serverTime = new Date(serverUpdated).getTime();
-          const localTime = new Date(localUpdated).getTime();
-          
-          if (serverTime > localTime) {
-            // Server is newer, update local
-            console.log(`[SyncService] Server ${tableName} is newer, updating local:`, serverRecord.id);
-            localRecords[existingIndex] = { ...localRecord, ...serverRecord };
-          } else {
-            console.log(`[SyncService] Local ${tableName} is newer, keeping local:`, serverRecord.id);
-            // Keep local version, don't overwrite
-          }
-        } else {
-          // No timestamps, use server version (default behavior)
-          console.log(`[SyncService] No timestamps, updating ${tableName}:`, serverRecord.id);
+        // For clubs, participants, and participant_sessions, always trust server
+        // since owner makes changes and pushes them up
+        if (['clubs', 'participants', 'participant_sessions'].includes(tableName)) {
+          console.log(`[SyncService] Updating ${tableName} from server:`, serverRecord.id);
           localRecords[existingIndex] = { ...localRecord, ...serverRecord };
+        } else {
+          // For sessions and attendance, compare timestamps
+          const serverUpdated = serverRecord.updated_at || serverRecord.created_at;
+          const localUpdated = localRecord.updated_at || localRecord.created_at;
+          
+          if (serverUpdated && localUpdated) {
+            const serverTime = new Date(serverUpdated).getTime();
+            const localTime = new Date(localUpdated).getTime();
+            
+            if (serverTime > localTime) {
+              console.log(`[SyncService] Server ${tableName} is newer, updating local:`, serverRecord.id);
+              localRecords[existingIndex] = { ...localRecord, ...serverRecord };
+            } else {
+              console.log(`[SyncService] Local ${tableName} is newer, keeping local:`, serverRecord.id);
+            }
+          } else {
+            console.log(`[SyncService] No timestamps, updating ${tableName}:`, serverRecord.id);
+            localRecords[existingIndex] = { ...localRecord, ...serverRecord };
+          }
         }
       } else {
         // Add new record from server
@@ -901,8 +905,9 @@ class SyncService {
         }
         return data;
       } else if (operation === 'INSERT' || operation === 'UPDATE') {
-        // For UPDATE operations, check if local data is newer before uploading
-        if (operation === 'UPDATE' && !record.id.startsWith('local-')) {
+        // For UPDATE operations on sessions/attendance, check if local data is newer
+        // For clubs/participants/participant_sessions, always upload (owner is source of truth)
+        if (operation === 'UPDATE' && !record.id.startsWith('local-') && !['clubs', 'participants', 'participant_sessions'].includes(table)) {
           const { data: serverRecord } = await supabase
             .from(table)
             .select('updated_at')
@@ -934,16 +939,31 @@ class SyncService {
             owner_id: owner_id || session.user.id, // Ensure owner_id is set
             updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
           };
-          if (id && !id.startsWith('local-')) mappedRecord.id = id;
           
-          const { data, error } = await supabase
-            .from(table)
-            .upsert(mappedRecord, { onConflict: 'id' })
-            .select()
-            .single();
-          
-          if (error) throw error;
-          return data;
+          if (operation === 'UPDATE' && id && !id.startsWith('local-')) {
+            // Use UPDATE for existing clubs to avoid triggering INSERT constraint
+            const { data, error } = await supabase
+              .from(table)
+              .update(mappedRecord)
+              .eq('id', id)
+              .select()
+              .single();
+            
+            if (error) throw error;
+            return data;
+          } else {
+            // Use upsert for INSERT operations
+            if (id && !id.startsWith('local-')) mappedRecord.id = id;
+            
+            const { data, error } = await supabase
+              .from(table)
+              .upsert(mappedRecord, { onConflict: 'id' })
+              .select()
+              .single();
+            
+            if (error) throw error;
+            return data;
+          }
         } else if (table === 'sessions') {
           // Sessions: keep day_of_week, start_time, end_time (updated_at is handled by DB trigger)
           const { id, club_id, day_of_week, start_time, end_time } = cleanRecord;
@@ -979,6 +999,23 @@ class SyncService {
             last_name,
             is_long_term_sick: is_long_term_sick || false
             // Don't send updated_at - let database trigger handle it
+          };
+          if (id && !id.startsWith('local-')) mappedRecord.id = id;
+          
+          const { data, error } = await supabase
+            .from(table)
+            .upsert(mappedRecord, { onConflict: 'id' })
+            .select()
+            .single();
+          
+          if (error) throw error;
+          return data;
+        } else if (table === 'participant_sessions') {
+          // Participant_sessions: keep participant_id, session_id
+          const { id, participant_id, session_id } = cleanRecord;
+          const mappedRecord: any = { 
+            participant_id,
+            session_id
           };
           if (id && !id.startsWith('local-')) mappedRecord.id = id;
           

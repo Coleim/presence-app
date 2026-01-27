@@ -296,30 +296,6 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         {club.description && <Text style={styles.description}>{club.description}</Text>}
 
         <View style={styles.buttonContainer}>
-          {/* Only owner can add sessions */}
-          {isOwner && (
-            <TouchableOpacity
-              style={styles.buttonOutline}
-              onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
-            >
-              <View style={styles.buttonWithIcon}>
-                <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
-                <Text style={styles.buttonOutlineText}>{t('club.addSession')}</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Everyone can add participants */}
-          <TouchableOpacity
-            style={styles.buttonOutline}
-            onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
-          >
-            <View style={styles.buttonWithIcon}>
-              <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.buttonOutlineText}>{t('club.addParticipant')}</Text>
-            </View>
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.buttonOutline}
             onPress={() => navigation.navigate('Stats', { club })}
@@ -332,28 +308,23 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('club.sessions')}</Text>
-          <FlatList
-            data={sessions}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={styles.listItem}
-                onLongPress={isOwner ? () => deleteSession(item.id, `${translateDay(item.day_of_week)} ${item.start_time}-${item.end_time}`) : undefined}
-              >
-                <Text style={styles.sessionText}>
-                  {translateDay(item.day_of_week)} {item.start_time}-{item.end_time}
-                </Text>
-                {!isOwner && <Text style={styles.ownerOnlyHint}>{t('club.ownerOnly')}</Text>}
-              </TouchableOpacity>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t('club.participants')}</Text>
+            {participants.length > 0 && (
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{participants.length}</Text>
+              </View>
             )}
-            scrollEnabled={false}
-            ListEmptyComponent={<Text style={styles.emptyText}>{t('club.noSessions')}</Text>}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('club.participants')}</Text>
+            <View style={styles.sectionHeaderSpacer} />
+            {/* Everyone can add participants */}
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
+            >
+              <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
+              <Text style={styles.headerButtonText}>{t('common.add')}</Text>
+            </TouchableOpacity>
+          </View>
           <FlatList
             data={participants}
             keyExtractor={(item) => item.id.toString()}
@@ -377,6 +348,45 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             )}
             scrollEnabled={false}
             ListEmptyComponent={<Text style={styles.emptyText}>{t('club.noParticipants')}</Text>}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t('club.sessions')}</Text>
+            {sessions.length > 0 && (
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{sessions.length}</Text>
+              </View>
+            )}
+            <View style={styles.sectionHeaderSpacer} />
+            {/* Only owner can add sessions */}
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => navigation.navigate('AddSession', { clubId: club.id })}
+              >
+                <Feather name="plus-circle" size={18} color={theme.colors.primary[700]} />
+                <Text style={styles.headerButtonText}>{t('common.add')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <FlatList
+            data={sessions}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.listItem}
+                onLongPress={isOwner ? () => deleteSession(item.id, `${translateDay(item.day_of_week)} ${item.start_time}-${item.end_time}`) : undefined}
+              >
+                <Text style={styles.sessionText}>
+                  {translateDay(item.day_of_week)} {item.start_time}-{item.end_time}
+                </Text>
+                {!isOwner && <Text style={styles.ownerOnlyHint}>{t('club.ownerOnly')}</Text>}
+              </TouchableOpacity>
+            )}
+            scrollEnabled={false}
+            ListEmptyComponent={<Text style={styles.emptyText}>{t('club.noSessions')}</Text>}
           />
         </View>
 
@@ -648,6 +658,70 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  section: {
+    marginBottom: theme.space[6],
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: theme.space[3],
+    gap: theme.space[2],
+  },
+  sectionHeaderSpacer: {
+    flex: 1,
+  },
+  headerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.space[1],
+    paddingVertical: theme.space[1],
+    paddingHorizontal: theme.space[2],
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.primary[50],
+  },
+  headerButtonText: {
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.medium,
+    color: theme.colors.primary[700],
+  },
+  sectionTitle: {
+    fontSize: theme.typography.fontSize.lg,
+    fontWeight: theme.typography.fontWeight.semibold,
+    color: theme.colors.text.primary,
+  },
+  countBadge: {
+    backgroundColor: theme.colors.primary[100],
+    borderRadius: theme.borderRadius.full,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: theme.space[2],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countBadgeText: {
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.semibold,
+    color: theme.colors.primary[700],
+  },
+  addButton: {
+    borderWidth: 1,
+    borderColor: theme.colors.primary[700],
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.space[3],
+    paddingHorizontal: theme.space[4],
+    alignItems: 'center',
+    marginTop: theme.space[2],
+    backgroundColor: theme.colors.surface,
+  },
+  addButtonText: {
+    color: theme.colors.primary[700],
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
+  },
+  sessionText: {
+    fontSize: theme.typography.fontSize.md,
+    color: theme.colors.text.primary,
   },
   dangerContainer: {
     marginTop: theme.space[4],

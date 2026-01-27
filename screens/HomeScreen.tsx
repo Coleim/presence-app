@@ -19,8 +19,11 @@ export default function HomeScreen({ navigation }: any) {
 
   useEffect(() => {
     console.log('[HomeScreen] Component mounted');
-    checkAuth();
-    fetchData();
+    const init = async () => {
+      await checkAuth();
+      await fetchData();
+    };
+    init();
   }, []); // Only run once on mount
 
   useEffect(() => {
