@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.coleim.cahierdepresence"
+      "bundleIdentifier": "com.coleim.cahierdepresence.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +23,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.coleim.cahierdepresence",
+      "package": "com.coleim.cahierdepresence.app",
       "intentFilters": [
         {
           "action": "VIEW",
