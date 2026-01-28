@@ -13,12 +13,13 @@ export default function EditParticipantScreen({ route, navigation }: any) {
   const [lastName, setLastName] = useState(participant.last_name);
   const [isLongTermSick, setIsLongTermSick] = useState(participant.is_long_term_sick || false);
   const [sessions, setSessions] = useState<any[]>([]);
-  const [selectedSessions, setSelectedSessions] = useState<string[]>(participant.preferred_session_ids || []);
+  const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [isOwner, setIsOwner] = useState(false);
   const [club, setClub] = useState<any>(null);
 
   useEffect(() => {
     loadSessions();
+    loadParticipantSessions();
     checkOwnership();
   }, []);
 
@@ -48,6 +49,12 @@ export default function EditParticipantScreen({ route, navigation }: any) {
     });
     
     setSessions(sortedSessions);
+  };
+
+  const loadParticipantSessions = async () => {
+    const sessionIds = await dataService.getParticipantSessions(participant.id);
+    console.log('[EditParticipant] Loaded participant sessions:', sessionIds);
+    setSelectedSessions(sessionIds);
   };
 
   const toggleSession = (sessionId: string) => {

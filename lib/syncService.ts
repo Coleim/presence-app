@@ -742,7 +742,9 @@ class SyncService {
         .from('participant_sessions')
         .select('*, participants!inner(club_id)')
         .eq('participants.club_id', clubId)
-        .gte('created_at', sinceStr);
+        .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
+
+      console.log(`[SyncService] 📥 Server returned ${participantSessionsData?.length || 0} participant_sessions`);
 
       // Fetch attendance for participants in this club
       const { data: attendanceData } = await supabase
@@ -846,13 +848,13 @@ class SyncService {
 
   private getStorageKey = (tableName: string): string => {
     const keyMap: Record<string, string> = {
-      'clubs': 'clubs',
-      'sessions': 'sessions',
-      'participants': 'participants',
-      'attendance': 'attendance',
-      'participant_sessions': 'participant_sessions'
+      'clubs': '@presence_app:clubs',
+      'sessions': '@presence_app:sessions',
+      'participants': '@presence_app:participants',
+      'attendance': '@presence_app:attendance',
+      'participant_sessions': '@presence_app:participant_sessions'
     };
-    return keyMap[tableName] || tableName;
+    return keyMap[tableName] || `@presence_app:${tableName}`;
   };
 
   private getLastSyncTime = async (): Promise<Date | null> => {

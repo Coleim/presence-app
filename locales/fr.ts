@@ -55,6 +55,7 @@ export const fr = {
     ownerOnly: '(seul le propriétaire peut supprimer)',
     stats: 'Statistiques',
     administration: 'Administration',
+    settings: 'Paramètres',
     language: 'Langue / Language',
     shareCode: 'Code de partage',
     startYear: 'Démarrer l\'année',

@@ -226,7 +226,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
     
     try {
       await Share.share({
-        message: `Rejoins mon club "${club.name}" !\n\nCode d'accès: ${shareCode}\n\nUtilise ce code dans l'application pour rejoindre le club.`,
+        message: `${shareCode}`,
         title: `Partager le club ${club.name}`
       });
     } catch (error) {
@@ -390,6 +390,19 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           />
         </View>
 
+        {/* Settings Section - Available to all users */}
+        <View style={styles.adminSection}>
+          <Text style={styles.adminSectionTitle}>{t('club.settings')}</Text>
+          
+          {/* Language Selector */}
+          <View style={styles.adminRow}>
+            <View style={styles.adminRowContent}>
+              <Text style={styles.adminRowLabel}>{t('club.language')}</Text>
+            </View>
+            <LanguageSelector />
+          </View>
+        </View>
+
         {/* Admin Section - Only owner can reset stats */}
         {isOwner && (
           <View style={styles.adminSection}>
@@ -410,14 +423,6 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               </View>
             )}
-            
-            {/* Language Selector */}
-            <View style={styles.adminRow}>
-              <View style={styles.adminRowContent}>
-                <Text style={styles.adminRowLabel}>{t('club.language')}</Text>
-              </View>
-              <LanguageSelector />
-            </View>
             
             <TouchableOpacity
               style={styles.adminRow}
