@@ -61,6 +61,7 @@ export async function signOut() {
     '@presence_app:attendance',
     '@presence_app:user',
     '@presence_app:never_ask_login',
+    '@presence_app:deleted_items',
     'last_sync_timestamp',
   ]);
   

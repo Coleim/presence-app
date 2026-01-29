@@ -316,14 +316,16 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
               </View>
             )}
             <View style={styles.sectionHeaderSpacer} />
-            {/* Everyone can add participants */}
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
-            >
-              <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
-              <Text style={styles.headerButtonText}>{t('common.add')}</Text>
-            </TouchableOpacity>
+            {/* Only owners can add participants */}
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => navigation.navigate('AddParticipant', { clubId: club.id })}
+              >
+                <Feather name="user-plus" size={18} color={theme.colors.primary[700]} />
+                <Text style={styles.headerButtonText}>{t('common.add')}</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <FlatList
             data={participants}
@@ -331,7 +333,8 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.listItem}
-                onPress={() => navigation.navigate('EditParticipant', { participant: item, clubId: club.id })}
+                onPress={isOwner ? () => navigation.navigate('EditParticipant', { participant: item, clubId: club.id }) : undefined}
+                disabled={!isOwner}
               >
                 <View style={styles.listItemContent}>
                   <Text style={styles.listItemText}>
@@ -343,7 +346,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
                     </View>
                   )}
                 </View>
-                <Feather name="chevron-right" size={20} color={theme.colors.text.secondary} />
+                {isOwner && <Feather name="chevron-right" size={20} color={theme.colors.text.secondary} />}
               </TouchableOpacity>
             )}
             scrollEnabled={false}

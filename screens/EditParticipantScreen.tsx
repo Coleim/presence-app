@@ -121,12 +121,19 @@ export default function EditParticipantScreen({ route, navigation }: any) {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.sectionTitle}>{t('editParticipant.information')}</Text>
         
+        {!isOwner && (
+          <Text style={styles.ownerOnlyHint}>
+            {t('editParticipant.viewOnly')}
+          </Text>
+        )}
+        
         <TextInput
           style={styles.input}
           placeholder={t('editParticipant.firstNamePlaceholder')}
           placeholderTextColor={theme.colors.text.secondary}
           value={firstName}
           onChangeText={setFirstName}
+          editable={isOwner}
         />
 
         <TextInput
@@ -135,6 +142,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
           placeholderTextColor={theme.colors.text.secondary}
           value={lastName}
           onChangeText={setLastName}
+          editable={isOwner}
         />
 
         <View style={styles.switchContainer}>
@@ -149,6 +157,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
             onValueChange={setIsLongTermSick}
             trackColor={{ false: theme.colors.disabled, true: theme.colors.success }}
             thumbColor="#FFFFFF"
+            disabled={!isOwner}
           />
         </View>
 
@@ -165,6 +174,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
               selectedSessions.includes(session.id) && styles.sessionCheckboxSelected
             ]}
             onPress={() => toggleSession(session.id)}
+            disabled={!isOwner}
           >
             <View style={[
               styles.checkbox,
@@ -180,9 +190,12 @@ export default function EditParticipantScreen({ route, navigation }: any) {
           </TouchableOpacity>
         ))}
 
-        <TouchableOpacity style={styles.buttonPrimary} onPress={saveParticipant}>
-          <Text style={styles.buttonPrimaryText}>{t('editParticipant.update')}</Text>
-        </TouchableOpacity>
+        {/* Only owner can update participant details */}
+        {isOwner && (
+          <TouchableOpacity style={styles.buttonPrimary} onPress={saveParticipant}>
+            <Text style={styles.buttonPrimaryText}>{t('editParticipant.update')}</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Only owner can delete participants */}
         {isOwner && (
@@ -193,7 +206,7 @@ export default function EditParticipantScreen({ route, navigation }: any) {
         
         {!isOwner && (
           <Text style={styles.ownerOnlyHint}>
-            {t('editParticipant.cannotDelete')}
+            {t('editParticipant.cannotEdit')}
           </Text>
         )}
       </ScrollView>

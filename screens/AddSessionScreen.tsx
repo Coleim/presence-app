@@ -9,6 +9,7 @@ import { UsageBadge } from '../components/UsageBadge';
 import { UpgradePrompt } from '../components/UpgradePrompt';
 import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
+import { authManager } from '../lib/authManager';
 
 export default function AddSessionScreen({ route, navigation }) {
   const { clubId } = route.params;
@@ -23,11 +24,26 @@ export default function AddSessionScreen({ route, navigation }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkSessionLimit();
+    checkOwnershipAndLimit();
   }, []);
 
-  const checkSessionLimit = async () => {
+  const checkOwnershipAndLimit = async () => {
     try {
+      // Check ownership
+      const userId = await authManager.getCurrentUserId();
+      const clubData = await dataService.getClub(clubId);
+      const isOwner = !userId || userId === clubData?.owner_id;
+      
+      if (!isOwner) {
+        Alert.alert(
+          t('common.error'),
+          t('errors.ownerOnly'),
+          [{ text: t('common.ok'), onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
+
+      // Check session limit
       const stats = await usageService.getClubUsageStats(clubId);
       setSessionCount(stats.sessions);
     } catch (error) {

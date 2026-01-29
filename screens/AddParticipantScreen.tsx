@@ -8,6 +8,7 @@ import { UsageBadge } from '../components/UsageBadge';
 import { UpgradePrompt } from '../components/UpgradePrompt';
 import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
+import { authManager } from '../lib/authManager';
 
 export default function AddParticipantScreen({ route, navigation }) {
   const { clubId } = route.params;
@@ -20,11 +21,25 @@ export default function AddParticipantScreen({ route, navigation }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchData();
+    checkOwnershipAndFetchData();
   }, []);
 
-  const fetchData = async () => {
+  const checkOwnershipAndFetchData = async () => {
     try {
+      // Check ownership
+      const userId = await authManager.getCurrentUserId();
+      const clubData = await dataService.getClub(clubId);
+      const isOwner = !userId || userId === clubData?.owner_id;
+      
+      if (!isOwner) {
+        Alert.alert(
+          t('common.error'),
+          t('errors.ownerOnly'),
+          [{ text: t('common.ok'), onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
+
       await Promise.all([fetchSessions(), checkParticipantLimit()]);
     } finally {
       setIsLoading(false);

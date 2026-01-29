@@ -7,6 +7,15 @@ const PARTICIPANTS_KEY = '@presence_app:participants';
 const PARTICIPANT_SESSIONS_KEY = '@presence_app:participant_sessions';
 const ATTENDANCE_KEY = '@presence_app:attendance';
 const USER_KEY = '@presence_app:user';
+const DELETED_ITEMS_KEY = '@presence_app:deleted_items';
+
+interface DeletedItems {
+  clubs: string[];
+  sessions: string[];
+  participants: string[];
+  participant_sessions: string[];
+  attendance: string[];
+}
 
 export interface Club {
   id: string;
@@ -104,6 +113,43 @@ class DataService {
         this.isOnline = false;
         console.log('[DataService] Online status: offline');
       });
+  }
+
+  // ============================================
+  // DELETION TRACKING SYSTEM
+  // Track items explicitly deleted by user for sync
+  // ============================================
+  
+  private getDeletedItems = async (): Promise<DeletedItems> => {
+    const data = await AsyncStorage.getItem(DELETED_ITEMS_KEY);
+    return data ? JSON.parse(data) : {
+      clubs: [],
+      sessions: [],
+      participants: [],
+      participant_sessions: [],
+      attendance: []
+    };
+  }
+
+  markAsDeleted = async (type: keyof DeletedItems, id: string): Promise<void> => {
+    const deleted = await this.getDeletedItems();
+    if (!deleted[type].includes(id)) {
+      deleted[type].push(id);
+      await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
+      console.log(`[DataService] Marked ${type} ${id} as deleted`);
+    }
+  }
+
+  clearDeletedMarks = async (type: keyof DeletedItems, ids: string[]): Promise<void> => {
+    const deleted = await this.getDeletedItems();
+    deleted[type] = deleted[type].filter(id => !ids.includes(id));
+    await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
+    console.log(`[DataService] Cleared ${ids.length} deleted marks for ${type}`);
+  }
+
+  getDeletedIds = async (type: keyof DeletedItems): Promise<string[]> => {
+    const deleted = await this.getDeletedItems();
+    return deleted[type];
   }
 
   getClubs = async (): Promise<Club[]> => {
@@ -283,6 +329,9 @@ class DataService {
     const filtered = clubs.filter(c => c.id !== id);
     await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(filtered));
     
+    // Mark club as deleted for sync
+    await this.markAsDeleted('clubs', id);
+    
     // Also delete related data locally
     const sessions = await this.getSessions(id);
     const sessionIds = sessions.map(s => s.id);
@@ -291,6 +340,11 @@ class DataService {
       const filteredSessions = JSON.parse(allSessions).filter(s => s.club_id !== id);
       await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(filteredSessions));
     }
+    // Mark all sessions as deleted
+    for (const sessionId of sessionIds) {
+      await this.markAsDeleted('sessions', sessionId);
+    }
+    
     const participants = await this.getParticipants(id);
     const participantIds = participants.map(p => p.id);
     const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
@@ -298,10 +352,23 @@ class DataService {
       const filteredParticipants = JSON.parse(allParticipants).filter(p => p.club_id !== id);
       await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(filteredParticipants));
     }
+    // Mark all participants as deleted
+    for (const participantId of participantIds) {
+      await this.markAsDeleted('participants', participantId);
+    }
+    
     // Delete attendance for those sessions and participants
     const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
     if (allAttendance) {
-      const filteredAttendance = JSON.parse(allAttendance).filter(a => 
+      const attendanceRecords = JSON.parse(allAttendance);
+      const attendanceToDelete = attendanceRecords.filter(a => 
+        sessionIds.includes(a.session_id) || participantIds.includes(a.participant_id)
+      );
+      // Mark attendance as deleted
+      for (const att of attendanceToDelete) {
+        await this.markAsDeleted('attendance', att.id);
+      }
+      const filteredAttendance = attendanceRecords.filter(a => 
         !sessionIds.includes(a.session_id) && !participantIds.includes(a.participant_id)
       );
       await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(filteredAttendance));
@@ -422,18 +489,21 @@ class DataService {
       const filtered = sessions.filter(s => s.id !== id);
       await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(filtered));
     }
-    if (this.isOnline && session) {
-      try {
-        await supabase.from('sessions').delete().eq('id', id);
-      } catch (e) {
-        console.info('Delete sync later');
-      }
-    }
+    
+    // Mark session as deleted for sync (don't try to delete from server immediately)
+    await this.markAsDeleted('sessions', id);
+    
     // Delete related attendance records
     const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
     if (allAttendance) {
-      const attendance = JSON.parse(allAttendance).filter(a => a.session_id !== id);
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(attendance));
+      const attendanceRecords = JSON.parse(allAttendance);
+      const attendanceToDelete = attendanceRecords.filter(a => a.session_id === id);
+      // Mark attendance as deleted
+      for (const att of attendanceToDelete) {
+        await this.markAsDeleted('attendance', att.id);
+      }
+      const filtered = attendanceRecords.filter(a => a.session_id !== id);
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(filtered));
     }
   }
 
@@ -475,18 +545,21 @@ class DataService {
       const filtered = participants.filter(p => p.id !== id);
       await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(filtered));
     }
-    if (this.isOnline && participant) {
-      try {
-        await supabase.from('participants').delete().eq('id', id);
-      } catch (e) {
-        console.info('Delete sync later');
-      }
-    }
+    
+    // Mark participant as deleted for sync (don't try to delete from server immediately)
+    await this.markAsDeleted('participants', id);
+    
     // Delete related attendance records
     const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
     if (allAttendance) {
-      const attendance = JSON.parse(allAttendance).filter(a => a.participant_id !== id);
-      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(attendance));
+      const attendanceRecords = JSON.parse(allAttendance);
+      const attendanceToDelete = attendanceRecords.filter(a => a.participant_id === id);
+      // Mark attendance as deleted
+      for (const att of attendanceToDelete) {
+        await this.markAsDeleted('attendance', att.id);
+      }
+      const filtered = attendanceRecords.filter(a => a.participant_id !== id);
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(filtered));
     }
   }
 
