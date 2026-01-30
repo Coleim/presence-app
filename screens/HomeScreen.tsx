@@ -248,7 +248,7 @@ export default function HomeScreen({ navigation }: any) {
   const getPresentCount = async (session: any, date: any) => {
     try {
       const attendance = await dataService.getAttendance(session.id, date);
-      const presentCount = attendance.filter(a => a.status === 'present').length;
+      const presentCount = attendance.filter(a => a.present).length;
       return presentCount;
     } catch (error) {
       console.error('Error getting present count:', error);

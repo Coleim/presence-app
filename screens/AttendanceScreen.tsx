@@ -42,7 +42,7 @@ export default function AttendanceScreen({ route, navigation }: any) {
     // Load existing attendance and merge with init
     const existingData = await dataService.getAttendance(session.id, date);
     existingData.forEach(a => {
-      init[a.participant_id] = a.status === 'present';
+      init[a.participant_id] = a.present;
     });
     
     setAttendance(init);
@@ -57,7 +57,7 @@ export default function AttendanceScreen({ route, navigation }: any) {
       session_id: session.id,
       participant_id: pid,
       date,
-      status: attendance[pid] ? 'present' : 'absent'
+      present: attendance[pid]
     }));
     console.log('[AttendanceScreen] Saving attendance - date:', date, 'records:', records.length);
     console.log('[AttendanceScreen] First record:', JSON.stringify(records[0]));

@@ -33,7 +33,7 @@ export default function StatsScreen({ route, navigation }: any) {
       pAttendance.forEach(a => {
         const isAssignedSession = assignedSessionIds.includes(a.session_id);
         
-        if (a.status === 'present') {
+        if (a.present) {
           if (isAssignedSession) {
             presentInAssigned++;
           } else {
@@ -66,11 +66,18 @@ export default function StatsScreen({ route, navigation }: any) {
       };
     });
     
-    // Sort by percentage (highest first)
+    // Sort by percentage (highest first), then by bonus presences
     participantStats.sort((a, b) => {
       const percentA = a.percentage === 'N/A' ? -1 : parseFloat(a.percentage);
       const percentB = b.percentage === 'N/A' ? -1 : parseFloat(b.percentage);
-      return percentB - percentA;
+      
+      // First sort by percentage
+      if (percentB !== percentA) {
+        return percentB - percentA;
+      }
+      
+      // If same percentage, sort by bonus presences (highest first)
+      return b.bonusPresences - a.bonusPresences;
     });
     
     setStats(participantStats);

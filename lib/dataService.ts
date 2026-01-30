@@ -60,7 +60,7 @@ export interface AttendanceRecord {
   session_id: string;
   participant_id: string;
   date: string;
-  status: 'present' | 'absent';
+  present: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -99,6 +99,49 @@ class DataService {
         await AsyncStorage.removeItem(old);
         console.log(`[DataService] Migrated ${old} → ${newKey}`);
       }
+    }
+    
+    // Clean up invalid attendance records with non-UUID IDs
+    await this.cleanupInvalidAttendanceRecords();
+  }
+  
+  // Remove attendance records with invalid UUID IDs
+  private cleanupInvalidAttendanceRecords = async () => {
+    const attendanceData = await AsyncStorage.getItem(ATTENDANCE_KEY);
+    if (!attendanceData) return;
+    
+    const attendance = JSON.parse(attendanceData);
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    // Only check if ID is valid UUID IF it exists (undefined is OK for new records)
+    const isValidUUID = (id: string | undefined) => {
+      if (!id || id === 'undefined') return true; // undefined is valid (new record)
+      return uuidRegex.test(id); // check format if ID exists
+    };
+    
+    const validAttendance = attendance.filter((a: AttendanceRecord) => {
+      // Check all IDs - only validate if they exist
+      const validId = isValidUUID(a.id);
+      const validParticipantId = isValidUUID(a.participant_id);
+      const validSessionId = isValidUUID(a.session_id);
+      const isValid = validId && validParticipantId && validSessionId;
+      
+      if (!isValid) {
+        console.log('[DataService] Removing invalid attendance record:', {
+          id: a.id,
+          participant_id: a.participant_id,
+          session_id: a.session_id,
+          validId,
+          validParticipantId,
+          validSessionId
+        });
+      }
+      return isValid;
+    });
+    
+    if (validAttendance.length !== attendance.length) {
+      console.log(`[DataService] Cleaned up ${attendance.length - validAttendance.length} invalid attendance records`);
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(validAttendance));
     }
   }
 
@@ -597,14 +640,15 @@ class DataService {
     console.log('[DataService] Filtering by - sessionId:', sessionId, 'date:', date);
     attendance = attendance.filter((a: AttendanceRecord) => !(a.session_id === sessionId && a.date === date));
     
-    // Add new records with IDs and timestamps
-    const recordsWithIds = records.map(record => ({
+    // Add new records with timestamps (no ID - database will generate UUID on insert)
+    const recordsWithTimestamps = records.map(record => ({
       ...record,
-      id: record.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      // Remove any existing ID so database generates a new UUID
+      id: undefined
     }));
     
-    attendance.push(...recordsWithIds);
+    attendance.push(...recordsWithTimestamps);
     
     console.log('[DataService] Saving', attendance.length, 'total attendance records to local storage');
     // Save locally first
@@ -634,13 +678,13 @@ class DataService {
   // Participant Sessions (Preferred Sessions) methods
   
   getParticipantSessions = async (participantId: string): Promise<string[]> => {
-    console.log('[DataService] getParticipantSessions called for:', participantId);
+    // console.log('[DataService] getParticipantSessions called for:', participantId);
     const local = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
     const allPS = local ? JSON.parse(local) : [];
     const participantSessions = allPS.filter(ps => ps.participant_id === participantId);
     
-    console.log('[DataService] Found', participantSessions.length, 'sessions for participant', participantId);
-    console.log('[DataService] Session IDs:', participantSessions.map(ps => ps.session_id));
+    // console.log('[DataService] Found', participantSessions.length, 'sessions for participant', participantId);
+    // console.log('[DataService] Session IDs:', participantSessions.map(ps => ps.session_id));
     
     // Return local data immediately - SyncService handles cloud sync
     return participantSessions.map(ps => ps.session_id);

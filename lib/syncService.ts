@@ -191,18 +191,58 @@ class SyncService {
         const allAttendance = await AsyncStorage.getItem('@presence_app:attendance');
         if (allAttendance) {
           const attendanceList = JSON.parse(allAttendance);
+          console.log(`[SyncService] Found ${attendanceList.length} total attendance records in storage`);
+          
           const clubSessionIds = new Set(localSessions.map(s => s.id));
           const clubAttendance = attendanceList.filter((a: any) => clubSessionIds.has(a.session_id));
+          console.log(`[SyncService] Found ${clubAttendance.length} attendance records for this club`);
+          
+          // UUID validation regex
+          const isValidUUID = (id: string) => {
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            return !id || id === 'undefined' || uuidRegex.test(id);
+          };
+          
+          let uploadedCount = 0;
+          let skippedCount = 0;
           
           for (const attendance of clubAttendance) {
-            // Skip if has local IDs
-            if (attendance.id?.startsWith('local-') || 
-                attendance.participant_id?.startsWith('local-') || 
-                attendance.session_id?.startsWith('local-')) {
+            // Skip if has local IDs, missing required fields, or invalid UUID format
+            if (attendance.participant_id?.startsWith('local-') || 
+                attendance.session_id?.startsWith('local-') ||
+                !attendance.participant_id ||
+                !attendance.session_id ||
+                !isValidUUID(attendance.id) ||
+                !isValidUUID(attendance.participant_id) ||
+                !isValidUUID(attendance.session_id)) {
+              console.log('[SyncService] Skipping invalid attendance record:', {
+                id: attendance.id,
+                participant_id: attendance.participant_id,
+                session_id: attendance.session_id,
+                date: attendance.date
+              });
+              skippedCount++;
               continue;
             }
-            await this.uploadToSupabase('attendance', attendance, 'UPDATE');
+            console.log('[SyncService] Uploading attendance record:', {
+              id: attendance.id,
+              participant_id: attendance.participant_id,
+              session_id: attendance.session_id,
+              date: attendance.date,
+              present: attendance.present
+            });
+            try {
+              await this.uploadToSupabase('attendance', attendance, 'UPDATE');
+              uploadedCount++;
+              console.log('[SyncService] ✅ Attendance record uploaded successfully');
+            } catch (error) {
+              console.error('[SyncService] ❌ Failed to upload attendance record:', error);
+            }
           }
+          
+          console.log(`[SyncService] Attendance sync summary: ${uploadedCount} uploaded, ${skippedCount} skipped`);
+        } else {
+          console.log('[SyncService] No attendance records found in storage');
         }
       }
 
@@ -440,7 +480,7 @@ class SyncService {
 
       if (operation === 'DELETE') {
         // Skip delete if record is local-only (never uploaded to server)
-        if (record.id.startsWith('local-')) {
+        if (record.id?.startsWith('local-')) {
           console.log(`[SyncService] Skipping delete of local-only record: ${record.id}`);
           return null;
         }
@@ -468,7 +508,7 @@ class SyncService {
       } else if (operation === 'INSERT' || operation === 'UPDATE') {
         // For UPDATE operations on sessions/attendance, check if local data is newer
         // For clubs/participants/participant_sessions, always upload (owner is source of truth)
-        if (operation === 'UPDATE' && !record.id.startsWith('local-') && !['clubs', 'participants', 'participant_sessions'].includes(table)) {
+        if (operation === 'UPDATE' && record.id && !record.id.startsWith('local-') && !['clubs', 'participants', 'participant_sessions'].includes(table)) {
           const { data: serverRecord } = await supabase
             .from(table)
             .select('updated_at')
@@ -587,6 +627,37 @@ class SyncService {
             .single();
           
           if (error) throw error;
+          return data;
+        } else if (table === 'attendance') {
+          // Attendance: keep participant_id, session_id, date, present
+          // Note: Use UPSERT with unique constraint on (participant_id, session_id, date)
+          const { id, participant_id, session_id, date, present } = cleanRecord;
+          console.log('[SyncService] Uploading attendance - id:', id, 'participant_id:', participant_id, 'session_id:', session_id);
+          
+          const mappedRecord: any = { 
+            participant_id,
+            session_id,
+            date,
+            present: present || false
+          };
+          
+          // Always use UPSERT with the natural key (participant_id, session_id, date)
+          // The database has a unique constraint on these three fields
+          console.log('[SyncService] Upserting attendance record:', mappedRecord);
+          const { data, error } = await supabase
+            .from(table)
+            .upsert(mappedRecord, { 
+              onConflict: 'participant_id,session_id,date',
+              ignoreDuplicates: false 
+            })
+            .select()
+            .single();
+          
+          if (error) {
+            console.error('[SyncService] Upsert attendance error:', error);
+            throw error;
+          }
+          console.log('[SyncService] Upsert attendance success:', data);
           return data;
         } else {
           // Other tables: use as-is
@@ -842,9 +913,9 @@ class SyncService {
     console.log(`[SyncService] Deleting ${deletedIds.length} marked ${type} from server`);
 
     for (const id of deletedIds) {
-      // Skip local-only IDs (never uploaded)
-      if (id.startsWith('local-')) {
-        console.log(`[SyncService] Skipping local-only ${type}: ${id}`);
+      // Skip invalid IDs (null, undefined, or local-only)
+      if (!id || id === 'undefined' || id.startsWith('local-')) {
+        console.log(`[SyncService] Skipping invalid/local-only ${type}: ${id}`);
         continue;
       }
 

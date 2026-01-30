@@ -30,7 +30,7 @@ export default function AddSessionScreen({ route, navigation }) {
   const checkOwnershipAndLimit = async () => {
     try {
       // Check ownership
-      const userId = await authManager.getCurrentUserId();
+      const userId = await authManager.getUserId();
       const clubData = await dataService.getClub(clubId);
       const isOwner = !userId || userId === clubData?.owner_id;
       
