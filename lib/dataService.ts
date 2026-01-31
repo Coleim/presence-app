@@ -292,18 +292,42 @@ class DataService {
         console.log(`[DataService] Downloaded ${participants.length} participants`);
       }
       
-      // Download attendance
-      const { data: attendance } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('club_id', club.id);
-      
-      if (attendance && attendance.length > 0) {
-        const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
-        const existingAttendance = allAttendance ? JSON.parse(allAttendance) : [];
-        const merged = [...existingAttendance, ...attendance];
-        await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(merged));
-        console.log(`[DataService] Downloaded ${attendance.length} attendance records`);
+      // Download attendance - get attendance for all sessions in this club
+      if (sessions && sessions.length > 0) {
+        const sessionIds = sessions.map(s => s.id);
+        
+        // Chunk session IDs to avoid query limits (PostgreSQL IN clause limit)
+        const CHUNK_SIZE = 500;
+        const attendanceRecords: any[] = [];
+        
+        for (let i = 0; i < sessionIds.length; i += CHUNK_SIZE) {
+          const chunk = sessionIds.slice(i, i + CHUNK_SIZE);
+          const { data: chunkAttendance, error: attendanceError } = await supabase
+            .from('attendance')
+            .select('*')
+            .in('session_id', chunk);
+          
+          if (attendanceError) {
+            console.error(`[DataService] Error downloading attendance chunk ${i / CHUNK_SIZE + 1}:`, attendanceError);
+          } else if (chunkAttendance) {
+            attendanceRecords.push(...chunkAttendance);
+          }
+        }
+        
+        if (attendanceRecords.length > 0) {
+          const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
+          const existingAttendance = allAttendance ? JSON.parse(allAttendance) : [];
+          
+          // Merge without duplicates based on attendance ID
+          const existingIds = new Set(existingAttendance.map((a: AttendanceRecord) => a.id));
+          const newAttendance = attendanceRecords.filter(a => !existingIds.has(a.id));
+          const merged = [...existingAttendance, ...newAttendance];
+          
+          await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(merged));
+          console.log(`[DataService] Downloaded ${attendanceRecords.length} attendance records (${newAttendance.length} new) from ${Math.ceil(sessionIds.length / CHUNK_SIZE)} chunks`);
+        } else {
+          console.log('[DataService] No attendance records found for this club');
+        }
       }
       
       // Download participant_sessions

@@ -2,6 +2,36 @@
 
 A React Native Expo app for managing student attendance in clubs/sessions.
 
+## 🧪 Testing
+
+The app includes a comprehensive test suite to ensure code quality and prevent regressions.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+
+# Run specific test suites
+npm run test:unit          # Unit tests
+npm run test:components    # Component tests
+npm run test:e2e          # End-to-end tests
+```
+
+### Test Coverage
+
+- **40 passing tests** across unit, component, and E2E suites
+- Focus on **club ownership features** and critical user flows
+- Tests ensure owners can manage clubs while non-owners have appropriate restrictions
+- See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for detailed documentation
+- See [TEST_IMPLEMENTATION_SUMMARY.md](./TEST_IMPLEMENTATION_SUMMARY.md) for implementation details
+
 ## Features
 
 - **Offline-First**: Works completely offline, stores data locally, syncs when online

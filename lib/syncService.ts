@@ -119,13 +119,34 @@ class SyncService {
         serverData.participants = serverParticipants || [];
         console.log(`[SyncService] Downloaded ${serverData.participants.length} participants`);
 
-        // Download attendance for all clubs
-        const { data: serverAttendance } = await supabase
-          .from('attendance')
-          .select('*')
-          .in('club_id', clubIds);
-        serverData.attendance = serverAttendance || [];
-        console.log(`[SyncService] Downloaded ${serverData.attendance.length} attendance records`);
+        // Download attendance for all clubs (using session IDs since attendance doesn't have club_id)
+        if (serverData.sessions.length > 0) {
+          const sessionIds = serverData.sessions.map((s: any) => s.id);
+          
+          // Chunk session IDs to avoid query limits (PostgreSQL IN clause limit)
+          const CHUNK_SIZE = 500;
+          const attendanceRecords: any[] = [];
+          
+          for (let i = 0; i < sessionIds.length; i += CHUNK_SIZE) {
+            const chunk = sessionIds.slice(i, i + CHUNK_SIZE);
+            const { data: chunkAttendance, error: attendanceError } = await supabase
+              .from('attendance')
+              .select('*')
+              .in('session_id', chunk);
+            
+            if (attendanceError) {
+              console.error(`[SyncService] Error downloading attendance chunk ${i / CHUNK_SIZE + 1}:`, attendanceError);
+            } else if (chunkAttendance) {
+              attendanceRecords.push(...chunkAttendance);
+            }
+          }
+          
+          serverData.attendance = attendanceRecords;
+          console.log(`[SyncService] Downloaded ${serverData.attendance.length} attendance records from ${Math.ceil(sessionIds.length / CHUNK_SIZE)} chunks`);
+        } else {
+          serverData.attendance = [];
+          console.log('[SyncService] No sessions found, skipping attendance download');
+        }
       }
 
       // ============================================
