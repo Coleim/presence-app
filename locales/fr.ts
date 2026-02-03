@@ -54,7 +54,7 @@ export const fr = {
     confirmDeleteSession: 'Voulez-vous supprimer la session',
     ownerOnly: '(seul le propriétaire peut supprimer)',
     stats: 'Statistiques',
-    administration: 'Administration',
+    administration: 'Détails du club',
     settings: 'Paramètres',
     language: 'Langue / Language',
     shareCode: 'Code de partage',

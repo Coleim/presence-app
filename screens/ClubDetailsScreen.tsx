@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
 import { syncService } from '../lib/syncService';
 import { authManager } from '../lib/authManager';
+import { signOut } from '../lib/auth';
 import { LanguageSelector } from '../components/LanguageSelector';
 import { useTranslation } from '../contexts/LanguageContext';
 import { theme } from '../lib/theme';
@@ -57,6 +58,17 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
       } catch (error) {
         console.error('[ClubDetailsScreen] Error generating share code:', error);
       }
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      authManager.invalidateCache();
+      syncService.stopAutoSync();
+      navigation.navigate('Auth');
+    } catch (error) {
+      console.error('Logout error:', error);
     }
   };
 
@@ -404,6 +416,19 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             </View>
             <LanguageSelector />
           </View>
+          
+          {/* Logout Button */}
+          {isAuthenticated && (
+            <TouchableOpacity
+              style={styles.logoutRow}
+              onPress={handleLogout}
+            >
+              <View style={styles.adminRowContent}>
+                <Text style={styles.logoutLabel}>{t('auth.signOut')}</Text>
+              </View>
+              <Feather name="log-out" size={20} color={theme.colors.error} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Admin Section - Only owner can reset stats */}
@@ -616,6 +641,22 @@ const styles = StyleSheet.create({
   },
   adminIconButton: {
     padding: theme.space[2],
+  },
+  logoutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.white,
+    padding: theme.space[4],
+    borderRadius: theme.borderRadius.md,
+    marginBottom: theme.space[2],
+    borderWidth: 1,
+    borderColor: theme.colors.error,
+  },
+  logoutLabel: {
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
+    color: theme.colors.error,
   },
   shareCodeText: {
     fontSize: theme.typography.fontSize.xl,

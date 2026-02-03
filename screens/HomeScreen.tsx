@@ -163,8 +163,8 @@ export default function HomeScreen({ navigation }: any) {
         continue; // Skip this session if day is not recognized
       }
       
-      // Generate multiple weeks of this session
-      for (let week = 0; week < weeksToGenerate; week++) {
+      // Generate multiple weeks of this session (including the most recent past occurrence)
+      for (let week = -1; week < weeksToGenerate; week++) {
         // Calculate days until next occurrence of this day
         const daysUntilNext = (dayIndex - now.getDay() + 7) % 7;
         let nextDate = new Date(now);
@@ -179,11 +179,19 @@ export default function HomeScreen({ navigation }: any) {
         const [endHours, endMinutes] = session.end_time.split(':').map(Number);
         const sessionEnd = new Date(nextDate);
         sessionEnd.setHours(endHours, endMinutes, 0, 0);
-        const expirationTime = new Date(sessionEnd.getTime() + 3 * 60 * 60 * 1000); // 3h after end
+        
+        // Check if attendance has been recorded for this session
+        const sessionDate = nextDate.toISOString().split('T')[0];
+        const attendance = await dataService.getAttendance(session.id, sessionDate);
+        const hasAttendance = attendance && attendance.length > 0;
+        
+        // If no attendance recorded, keep open for 24h; otherwise 3h after end
+        const expirationHours = hasAttendance ? 3 : 24;
+        const expirationTime = new Date(sessionEnd.getTime() + expirationHours * 60 * 60 * 1000);
         
         // Skip if this session's expiration window has passed
         if (expirationTime <= now) {
-          console.info(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')})`);
+          console.info(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')}, hasAttendance: ${hasAttendance})`);
           continue;
         }
         
@@ -234,25 +242,27 @@ export default function HomeScreen({ navigation }: any) {
     // Second pass: fetch all counts in parallel
     const upcomingWithCounts = await Promise.all(
       top10.map(async (session) => {
-        const [presentCount, assignedCount] = await Promise.all([
-          getPresentCount(session, session.date),
+        const [attendanceInfo, assignedCount] = await Promise.all([
+          getAttendanceInfo(session, session.date),
           getAssignedCount(session)
         ]);
-        return { ...session, presentCount, assignedCount };
+        return { ...session, presentCount: attendanceInfo.presentCount, assignedCount, hasAttendance: attendanceInfo.hasAttendance };
       })
     );
 
     setUpcomingSessions(upcomingWithCounts);
   };
 
-  const getPresentCount = async (session: any, date: any) => {
+  const getAttendanceInfo = async (session: any, date: any) => {
     try {
       const attendance = await dataService.getAttendance(session.id, date);
-      const presentCount = attendance.filter(a => a.present).length;
-      return presentCount;
+      return {
+        presentCount: attendance.filter(a => a.present).length,
+        hasAttendance: attendance && attendance.length > 0
+      };
     } catch (error) {
-      console.error('Error getting present count:', error);
-      return 0;
+      console.error('Error getting attendance info:', error);
+      return { presentCount: 0, hasAttendance: false };
     }
   };
 
@@ -354,9 +364,11 @@ export default function HomeScreen({ navigation }: any) {
             const sessionEnd = new Date(item.date + 'T00:00:00');
             sessionEnd.setHours(endHours, endMinutes, 0, 0);
             
-            // Session is active 2h before start and up to 3h after end
+            // Session is active 2h before start
+            // Expiration: 3h after end if attendance recorded, 24h if not
             const activationTime = new Date(sessionStart.getTime() - 2 * 60 * 60 * 1000); // 2h before
-            const expirationTime = new Date(sessionEnd.getTime() + 3 * 60 * 60 * 1000); // 3h after
+            const expirationHours = item.hasAttendance ? 3 : 24;
+            const expirationTime = new Date(sessionEnd.getTime() + expirationHours * 60 * 60 * 1000);
             
             const isActive = now >= activationTime && now <= expirationTime;
             

@@ -96,6 +96,7 @@ class SyncService {
         clubs: serverClubs || [],
         sessions: [],
         participants: [],
+        participant_sessions: [],
         attendance: []
       };
 
@@ -118,6 +119,30 @@ class SyncService {
           .in('club_id', clubIds);
         serverData.participants = serverParticipants || [];
         console.log(`[SyncService] Downloaded ${serverData.participants.length} participants`);
+
+        // Download participant_sessions for all participants
+        if (serverData.participants.length > 0) {
+          const participantIds = serverData.participants.map((p: any) => p.id);
+          console.log(`[SyncService] Downloading participant_sessions for ${participantIds.length} participants:`, participantIds);
+          const { data: serverParticipantSessions, error: psError } = await supabase
+            .from('participant_sessions')
+            .select('*')
+            .in('participant_id', participantIds);
+          
+          if (psError) {
+            console.error('[SyncService] Error downloading participant_sessions:', psError);
+          }
+          
+          serverData.participant_sessions = serverParticipantSessions || [];
+          console.log(`[SyncService] Downloaded ${serverData.participant_sessions.length} participant_sessions`);
+          
+          if (serverData.participant_sessions.length > 0) {
+            console.log('[SyncService] Participant sessions details:', JSON.stringify(serverData.participant_sessions, null, 2));
+          }
+        } else {
+          serverData.participant_sessions = [];
+          console.log('[SyncService] No participants found, skipping participant_sessions download');
+        }
 
         // Download attendance for all clubs (using session IDs since attendance doesn't have club_id)
         if (serverData.sessions.length > 0) {
@@ -159,6 +184,8 @@ class SyncService {
       await this.mergeDataWithLocal('clubs', serverData.clubs, session.user.id);
       await this.mergeDataWithLocal('sessions', serverData.sessions, session.user.id);
       await this.mergeDataWithLocal('participants', serverData.participants, session.user.id);
+      console.log(`[SyncService] About to merge ${serverData.participant_sessions?.length || 0} participant_sessions`);
+      await this.mergeDataWithLocal('participant_sessions', serverData.participant_sessions || [], session.user.id);
       await this.mergeDataWithLocal('attendance', serverData.attendance, session.user.id);
 
       // ============================================
@@ -206,6 +233,58 @@ class SyncService {
             uploadedIds.participants.add(serverParticipant.id);
             await this.updateLocalId('participants', participant.id, serverParticipant.id);
           }
+        }
+
+        // Upload participant_sessions
+        const participantIds = localParticipants.map(p => p.id);
+        const allPS = await AsyncStorage.getItem('@presence_app:participant_sessions');
+        if (allPS) {
+          const psList = JSON.parse(allPS);
+          
+          // UUID validation regex
+          const isValidUUID = (id: string) => {
+            if (!id) return false;
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            return uuidRegex.test(id);
+          };
+          
+          // Helper to generate UUID v4
+          const generateUUID = () => {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = Math.random() * 16 | 0;
+              const v = c === 'x' ? r : (r & 0x3 | 0x8);
+              return v.toString(16);
+            });
+          };
+          
+          let uploadedCount = 0;
+          const updatedPsList = [...psList];
+          
+          for (let i = 0; i < updatedPsList.length; i++) {
+            const ps = updatedPsList[i];
+            if (!participantIds.includes(ps.participant_id)) continue;
+            
+            // Only upload if both participant_id and session_id are valid UUIDs
+            if (isValidUUID(ps.participant_id) && isValidUUID(ps.session_id)) {
+              // If the record's own id is not a valid UUID, generate one
+              if (!isValidUUID(ps.id)) {
+                ps.id = generateUUID();
+                updatedPsList[i] = ps;
+              }
+              try {
+                await this.uploadToSupabase('participant_sessions', ps, 'UPDATE');
+                uploadedCount++;
+              } catch (error) {
+                console.error('[SyncService] Failed to upload participant_session:', error);
+              }
+            } else {
+              console.log('[SyncService] Skipping participant_session with local IDs:', ps);
+            }
+          }
+          
+          // Save updated list with new UUIDs back to storage
+          await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPsList));
+          console.log(`[SyncService] Uploaded ${uploadedCount} participant_sessions`);
         }
 
         // Upload attendance
@@ -421,7 +500,11 @@ class SyncService {
     const local = await AsyncStorage.getItem(storageKey);
     let localRecords = local ? JSON.parse(local) : [];
 
-    console.log(`Syncing ${records.length} records to ${tableName}`);
+    console.log(`[SyncService] Syncing ${records.length} ${tableName} records to local storage`);
+    
+    if (tableName === 'participant_sessions' && records.length > 0) {
+      console.log(`[SyncService] participant_sessions data being synced:`, JSON.stringify(records, null, 2));
+    }
 
     // Merge server records into local storage
     for (const serverRecord of records) {
@@ -634,16 +717,16 @@ class SyncService {
           return data;
         } else if (table === 'participant_sessions') {
           // Participant_sessions: keep participant_id, session_id
-          const { id, participant_id, session_id } = cleanRecord;
+          const { participant_id, session_id } = cleanRecord;
           const mappedRecord: any = { 
             participant_id,
             session_id
           };
-          if (id && !id.startsWith('local-')) mappedRecord.id = id;
+          // Don't include id - use the composite key (participant_id, session_id) for conflict resolution
           
           const { data, error } = await supabase
             .from(table)
-            .upsert(mappedRecord, { onConflict: 'id' })
+            .upsert(mappedRecord, { onConflict: 'participant_id,session_id' })
             .select()
             .single();
           
@@ -706,7 +789,7 @@ class SyncService {
    * Merge server data with local data based on timestamps
    * Server data takes precedence if it's newer or if local doesn't exist
    */
-  private mergeDataWithLocal = async (type: 'clubs' | 'sessions' | 'participants' | 'attendance', serverRecords: any[], userId: string): Promise<void> => {
+  private mergeDataWithLocal = async (type: 'clubs' | 'sessions' | 'participants' | 'participant_sessions' | 'attendance', serverRecords: any[], userId: string): Promise<void> => {
     const storageKey = this.getStorageKey(type);
     const localData = await AsyncStorage.getItem(storageKey);
     const localRecords = localData ? JSON.parse(localData) : [];
@@ -887,6 +970,16 @@ class SyncService {
         );
         await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(updated));
       }
+      // Update participant_sessions records
+      const psData = await AsyncStorage.getItem('@presence_app:participant_sessions');
+      if (psData) {
+        const participantSessions = JSON.parse(psData);
+        const updated = participantSessions.map((ps: any) => 
+          ps.session_id === oldId ? { ...ps, session_id: newId } : ps
+        );
+        await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updated));
+        console.log(`[SyncService] Updated participant_sessions session_id: ${oldId} → ${newId}`);
+      }
     } else if (type === 'participants') {
       // Update attendance records
       const attendanceData = await AsyncStorage.getItem('@presence_app:attendance');
@@ -896,6 +989,16 @@ class SyncService {
           a.participant_id === oldId ? { ...a, participant_id: newId } : a
         );
         await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(updated));
+      }
+      // Update participant_sessions records
+      const psData = await AsyncStorage.getItem('@presence_app:participant_sessions');
+      if (psData) {
+        const participantSessions = JSON.parse(psData);
+        const updated = participantSessions.map((ps: any) => 
+          ps.participant_id === oldId ? { ...ps, participant_id: newId } : ps
+        );
+        await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updated));
+        console.log(`[SyncService] Updated participant_sessions participant_id: ${oldId} → ${newId}`);
       }
     } else if (type === 'clubs') {
       // Update sessions

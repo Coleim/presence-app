@@ -54,7 +54,7 @@ export const en = {
     confirmDeleteSession: 'Do you want to delete the session',
     ownerOnly: '(only owner can delete)',
     stats: 'Statistics',
-    administration: 'Administration',
+    administration: 'Club Details',
     settings: 'Settings',
     language: 'Language / Langue',
     shareCode: 'Share Code',

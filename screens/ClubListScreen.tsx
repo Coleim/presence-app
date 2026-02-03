@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { dataService } from '../lib/dataService';
+import { signOut } from '../lib/auth';
+import { authManager } from '../lib/authManager';
+import { syncService } from '../lib/syncService';
 import { theme } from '../lib/theme';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -11,6 +15,17 @@ export default function ClubListScreen({ navigation }) {
   const fetchClubs = async () => {
     const data = await dataService.getClubs();
     setClubs(data);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      authManager.invalidateCache();
+      syncService.stopAutoSync();
+      navigation.navigate('Auth');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   useEffect(() => {
@@ -51,6 +66,11 @@ export default function ClubListScreen({ navigation }) {
 
         <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.navigate('JoinClub')}>
           <Text style={styles.buttonSecondaryText}>{t('home.joinClub')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Feather name="log-out" size={20} color={theme.colors.error} />
+          <Text style={styles.logoutText}>{t('auth.signOut')}</Text>
         </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>{t('home.title')}</Text>
@@ -119,6 +139,24 @@ const styles = StyleSheet.create({
   buttonSecondaryText: {
     color: theme.colors.text.secondary,
     fontSize: theme.typography.fontSize.md,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.space[2],
+    backgroundColor: theme.colors.surface,
+    paddingVertical: theme.space[3],
+    paddingHorizontal: theme.space[4],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.error,
+    marginTop: theme.space[4],
+  },
+  logoutText: {
+    color: theme.colors.error,
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
   },
   sectionTitle: {
     fontSize: theme.typography.fontSize.lg,
