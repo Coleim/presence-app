@@ -44,7 +44,6 @@ const AuthScreen: React.FC = () => {
   // Redirect to Home if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      console.log('[AuthScreen] Already authenticated, navigating to Home');
       navigation.reset({
         index: 0,
         routes: [{ name: 'Home' }],
@@ -65,7 +64,7 @@ const AuthScreen: React.FC = () => {
         skipToOfflineMode();
       }
     } catch (error) {
-      console.error('Error checking never ask again:', error);
+      // Silent fail
     }
   };
 
@@ -78,7 +77,6 @@ const AuthScreen: React.FC = () => {
       const session = await signInWithOAuth('google');
       
       if (session?.user) {
-        console.log('[AuthScreen] ✅ OAuth successful, user:', session.user.email);
         await dataService.setUser(session.user);
         dataService.checkOnline(); // Check if online after login (non-blocking)
         setUser(session.user);
@@ -93,7 +91,7 @@ const AuthScreen: React.FC = () => {
         Alert.alert(t('common.error'), t('auth.loginError'));
       }
     } catch (error: any) {
-      console.error('[AuthScreen] ❌ OAuth error:', error);
+
       Alert.alert(t('common.error'), error.message || t('auth.loginFailed'));
     } finally {
       setLoading(false);
@@ -133,7 +131,6 @@ const AuthScreen: React.FC = () => {
       }
       skipToOfflineMode();
     } catch (error) {
-      console.error('Error saving preference:', error);
       skipToOfflineMode();
     }
   };

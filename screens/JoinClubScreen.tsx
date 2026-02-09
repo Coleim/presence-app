@@ -61,8 +61,6 @@ export default function JoinClubScreen({ navigation }) {
         ]
       );
     } catch (error: any) {
-      console.error('Error joining club:', error);
-      
       let errorMessage = t('joinClub.joinError');
       if (error.message?.includes('Invalid share code')) {
         errorMessage = t('joinClub.invalidCodeError');

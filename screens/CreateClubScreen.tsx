@@ -36,7 +36,6 @@ export default function CreateClubScreen({ navigation }) {
       setClubsOwned(stats.clubsOwned);
       setCanCreateClub(!hasReachedClubLimit(stats.clubsOwned));
     } catch (error) {
-      console.error('Error checking club limit:', error);
       // On error, allow creation (fail open for better UX)
       setCanCreateClub(true);
     } finally {

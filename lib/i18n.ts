@@ -23,7 +23,7 @@ class I18n {
         this.currentLanguage = saved as Language;
       }
     } catch (error) {
-      console.error('Error loading language:', error);
+      // Silent fail
     }
   }
 
@@ -32,15 +32,12 @@ class I18n {
   }
 
   async setLanguage(lang: Language) {
-    console.log('[i18n] setLanguage called with:', lang);
     this.currentLanguage = lang;
     try {
       await AsyncStorage.setItem(LANGUAGE_KEY, lang);
-      console.log('[i18n] Language saved to AsyncStorage:', lang);
     } catch (error) {
-      console.error('Error saving language:', error);
+      // Silent fail
     }
-    console.log('[i18n] Notifying listeners, count:', this.listeners.length);
     this.notifyListeners();
   }
 
@@ -71,7 +68,6 @@ class I18n {
     }
     
     if (dayIndex === -1) {
-      console.warn('Unknown day name:', dayName);
       return dayName; // Return as-is if not found
     }
     

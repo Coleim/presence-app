@@ -51,7 +51,7 @@ export default function AddParticipantScreen({ route, navigation }) {
       const stats = await usageService.getClubUsageStats(clubId);
       setParticipantCount(stats.participants);
     } catch (error) {
-      console.error('Error checking participant limit:', error);
+      // Silent fail
     }
   };
 

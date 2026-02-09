@@ -9,6 +9,35 @@ const ATTENDANCE_KEY = '@presence_app:attendance';
 const USER_KEY = '@presence_app:user';
 const DELETED_ITEMS_KEY = '@presence_app:deleted_items';
 
+/**
+ * Generate a deterministic UUID v4-like ID from content.
+ * Same content always produces the same ID, avoiding duplicates.
+ * Exported for use in syncService.
+ */
+export const generateContentBasedId = (content: string): string => {
+  // Simple hash function (djb2)
+  let hash = 5381;
+  for (let i = 0; i < content.length; i++) {
+    hash = ((hash << 5) + hash) + content.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Generate a second hash for more uniqueness
+  let hash2 = 0;
+  for (let i = 0; i < content.length; i++) {
+    hash2 = content.charCodeAt(i) + ((hash2 << 6) + (hash2 << 16) - hash2);
+    hash2 = hash2 & hash2;
+  }
+  
+  // Convert to hex and format as UUID-like string
+  const h1 = Math.abs(hash).toString(16).padStart(8, '0');
+  const h2 = Math.abs(hash2).toString(16).padStart(8, '0');
+  const h3 = Math.abs(hash ^ hash2).toString(16).padStart(8, '0');
+  const h4 = Math.abs(hash + hash2).toString(16).padStart(8, '0');
+  
+  return `${h1.slice(0,8)}-${h1.slice(0,4)}-4${h2.slice(0,3)}-${['8','9','a','b'][Math.abs(hash) % 4]}${h2.slice(3,6)}-${h3.slice(0,4)}${h4.slice(0,8)}`.toLowerCase();
+};
+
 interface DeletedItems {
   clubs: string[];
   sessions: string[];
@@ -97,7 +126,6 @@ class DataService {
         await AsyncStorage.setItem(newKey, oldData);
         // Remove old key
         await AsyncStorage.removeItem(old);
-        console.log(`[DataService] Migrated ${old} → ${newKey}`);
       }
     }
     
@@ -126,21 +154,10 @@ class DataService {
       const validSessionId = isValidUUID(a.session_id);
       const isValid = validId && validParticipantId && validSessionId;
       
-      if (!isValid) {
-        console.log('[DataService] Removing invalid attendance record:', {
-          id: a.id,
-          participant_id: a.participant_id,
-          session_id: a.session_id,
-          validId,
-          validParticipantId,
-          validSessionId
-        });
-      }
       return isValid;
     });
     
     if (validAttendance.length !== attendance.length) {
-      console.log(`[DataService] Cleaned up ${attendance.length - validAttendance.length} invalid attendance records`);
       await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(validAttendance));
     }
   }
@@ -150,11 +167,9 @@ class DataService {
     supabase.from('clubs').select('id').limit(0)
       .then(() => {
         this.isOnline = true;
-        console.log('[DataService] Online status: connected');
       },
       () => {
         this.isOnline = false;
-        console.log('[DataService] Online status: offline');
       });
   }
 
@@ -179,7 +194,6 @@ class DataService {
     if (!deleted[type].includes(id)) {
       deleted[type].push(id);
       await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
-      console.log(`[DataService] Marked ${type} ${id} as deleted`);
     }
   }
 
@@ -187,7 +201,6 @@ class DataService {
     const deleted = await this.getDeletedItems();
     deleted[type] = deleted[type].filter(id => !ids.includes(id));
     await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
-    console.log(`[DataService] Cleared ${ids.length} deleted marks for ${type}`);
   }
 
   getDeletedIds = async (type: keyof DeletedItems): Promise<string[]> => {
@@ -216,12 +229,10 @@ class DataService {
         });
 
       if (error) {
-        console.error('[DataService] Error fetching club:', error);
         return null;
       }
 
       if (!data || data.length === 0) {
-        console.log('[DataService] No club found with code:', shareCode);
         return null;
       }
 
@@ -249,16 +260,11 @@ class DataService {
       if (memberError) {
         // Ignore duplicate key errors (user already a member)
         if (memberError.code !== '23505') {
-          console.error('[DataService] Error adding club membership:', memberError);
-        } else {
-          console.log('[DataService] User already a member of this club');
+          // Silent fail for other errors
         }
-      } else {
-        console.log('[DataService] User added as club member');
       }
 
       // Download all club data immediately
-      console.log('[DataService] Downloading club data...');
       
       // Download sessions
       const { data: sessions, error: sessionsError } = await supabase
@@ -267,15 +273,12 @@ class DataService {
         .eq('club_id', club.id);
       
       if (sessionsError) {
-        console.error('[DataService] Error downloading sessions:', sessionsError);
+        // Silent fail
       } else if (sessions && sessions.length > 0) {
         const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
         const existingSessions = allSessions ? JSON.parse(allSessions) : [];
         const merged = [...existingSessions, ...sessions];
         await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(merged));
-        console.log(`[DataService] Downloaded ${sessions.length} sessions`);
-      } else {
-        console.log('[DataService] No sessions found for this club');
       }
       
       // Download participants
@@ -289,7 +292,6 @@ class DataService {
         const existingParticipants = allParticipants ? JSON.parse(allParticipants) : [];
         const merged = [...existingParticipants, ...participants];
         await AsyncStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(merged));
-        console.log(`[DataService] Downloaded ${participants.length} participants`);
       }
       
       // Download attendance - get attendance for all sessions in this club
@@ -308,7 +310,7 @@ class DataService {
             .in('session_id', chunk);
           
           if (attendanceError) {
-            console.error(`[DataService] Error downloading attendance chunk ${i / CHUNK_SIZE + 1}:`, attendanceError);
+            // Silent fail
           } else if (chunkAttendance) {
             attendanceRecords.push(...chunkAttendance);
           }
@@ -324,9 +326,6 @@ class DataService {
           const merged = [...existingAttendance, ...newAttendance];
           
           await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(merged));
-          console.log(`[DataService] Downloaded ${attendanceRecords.length} attendance records (${newAttendance.length} new) from ${Math.ceil(sessionIds.length / CHUNK_SIZE)} chunks`);
-        } else {
-          console.log('[DataService] No attendance records found for this club');
         }
       }
       
@@ -343,7 +342,6 @@ class DataService {
           const existingPS = allPS ? JSON.parse(allPS) : [];
           const merged = [...existingPS, ...participantSessions];
           await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(merged));
-          console.log(`[DataService] Downloaded ${participantSessions.length} participant-session links`);
         }
       }
 
@@ -357,10 +355,8 @@ class DataService {
       }
       await AsyncStorage.setItem(CLUBS_KEY, JSON.stringify(clubs));
 
-      console.log('[DataService] Successfully joined club:', club.name);
       return club;
     } catch (error) {
-      console.error('[DataService] Error joining club by code:', error);
       return null;
     }
   }
@@ -386,7 +382,7 @@ class DataService {
         const club = updatedClubs.find(c => c.id === clubId);
         await supabase.from('clubs').update({ stats_reset_date: club?.stats_reset_date }).eq('id', clubId);
       } catch (e) {
-        console.info('Reset stats locally, sync later');
+        // Silent fail - sync later
       }
     }
   }
@@ -455,41 +451,28 @@ class DataService {
       const isOwner = user && club.owner_id === user.id;
       
       if (isOwner) {
-        console.log('[DataService] User is owner - deleting club from cloud:', id);
         try {
           // Delete participant_sessions first (foreign key constraint)
           if (participantIds.length > 0) {
-            console.log('[DataService] Deleting participant_sessions for', participantIds.length, 'participants');
             await supabase.from('participant_sessions').delete().in('participant_id', participantIds);
           }
           // Delete attendance
           if (sessionIds.length > 0) {
-            console.log('[DataService] Deleting attendance for', sessionIds.length, 'sessions');
             await supabase.from('attendance').delete().in('session_id', sessionIds);
           }
           if (participantIds.length > 0) {
-            console.log('[DataService] Deleting attendance for', participantIds.length, 'participants');
             await supabase.from('attendance').delete().in('participant_id', participantIds);
           }
           // Delete participants
-          console.log('[DataService] Deleting participants for club', id);
           await supabase.from('participants').delete().eq('club_id', id);
           // Delete sessions
-          console.log('[DataService] Deleting sessions for club', id);
           await supabase.from('sessions').delete().eq('club_id', id);
           // Delete club
-          console.log('[DataService] Deleting club', id);
           await supabase.from('clubs').delete().eq('id', id);
-          console.log('[DataService] ✅ Club deleted from cloud');
         } catch (e) {
-          console.error('Error deleting club from cloud:', e);
-          console.info('Club deleted locally, will try to sync later');
+          // Silent fail - club deleted locally, will try to sync later
         }
-      } else {
-        console.log('[DataService] User is not owner - club deleted locally only (not from cloud)');
       }
-    } else {
-      console.log('[DataService] Offline or no club data - club deleted locally only');
     }
   }
 
@@ -518,6 +501,84 @@ class DataService {
     return club;
   }
 
+  /**
+   * Migrate session references when session ID changes (old ID -> content hash ID)
+   * Updates attendance and participant_sessions to use the new ID
+   */
+  private migrateSessionReferences = async (oldId: string, newId: string): Promise<void> => {
+    if (oldId === newId) return;
+    
+    // Update attendance records
+    const attendanceData = await AsyncStorage.getItem(ATTENDANCE_KEY);
+    if (attendanceData) {
+      const attendance = JSON.parse(attendanceData);
+      const updated = attendance.map((a: any) => 
+        a.session_id === oldId ? { ...a, session_id: newId, updated_at: new Date().toISOString() } : a
+      );
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(updated));
+    }
+    
+    // Update participant_sessions records
+    const psData = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
+    if (psData) {
+      const participantSessions = JSON.parse(psData);
+      const updated = participantSessions.map((ps: any) => 
+        ps.session_id === oldId ? { ...ps, session_id: newId, updated_at: new Date().toISOString() } : ps
+      );
+      await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(updated));
+    }
+    
+    // Also migrate the deleted items tracking
+    const deletedData = await AsyncStorage.getItem(DELETED_ITEMS_KEY);
+    if (deletedData) {
+      const deleted = JSON.parse(deletedData);
+      if (deleted.sessions?.includes(oldId)) {
+        deleted.sessions = deleted.sessions.filter((id: string) => id !== oldId);
+        deleted.sessions.push(newId);
+        await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
+      }
+    }
+  }
+
+  /**
+   * Migrate participant references when participant ID changes (old ID -> content hash ID)
+   * Updates attendance and participant_sessions to use the new ID
+   */
+  private migrateParticipantReferences = async (oldId: string, newId: string): Promise<void> => {
+    if (oldId === newId) return;
+    
+    // Update attendance records
+    const attendanceData = await AsyncStorage.getItem(ATTENDANCE_KEY);
+    if (attendanceData) {
+      const attendance = JSON.parse(attendanceData);
+      const updated = attendance.map((a: any) => 
+        a.participant_id === oldId ? { ...a, participant_id: newId, updated_at: new Date().toISOString() } : a
+      );
+      await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(updated));
+    }
+    
+    // Update participant_sessions records
+    const psData = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
+    if (psData) {
+      const participantSessions = JSON.parse(psData);
+      const updated = participantSessions.map((ps: any) => 
+        ps.participant_id === oldId ? { ...ps, participant_id: newId, updated_at: new Date().toISOString() } : ps
+      );
+      await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(updated));
+    }
+    
+    // Also migrate the deleted items tracking
+    const deletedData = await AsyncStorage.getItem(DELETED_ITEMS_KEY);
+    if (deletedData) {
+      const deleted = JSON.parse(deletedData);
+      if (deleted.participants?.includes(oldId)) {
+        deleted.participants = deleted.participants.filter((id: string) => id !== oldId);
+        deleted.participants.push(newId);
+        await AsyncStorage.setItem(DELETED_ITEMS_KEY, JSON.stringify(deleted));
+      }
+    }
+  }
+
   getSessions = async (clubId: string): Promise<Session[]> => {
     const local = await AsyncStorage.getItem(SESSIONS_KEY);
     const sessions = local ? JSON.parse(local).filter((s: Session) => s.club_id === clubId) : [];
@@ -527,15 +588,52 @@ class DataService {
   saveSession = async (session: Session): Promise<Session> => {
     const allSessions = await AsyncStorage.getItem(SESSIONS_KEY);
     let sessions = allSessions ? JSON.parse(allSessions) : [];
-    const existingIndex = sessions.findIndex((s: Session) => s.id === session.id);
     
     // Add updated_at timestamp
     session.updated_at = new Date().toISOString();
     
-    if (existingIndex >= 0) {
-      sessions[existingIndex] = session;
+    // Always compute content-based hash ID
+    const contentKey = `session|${session.club_id}|${session.day_of_week}|${session.start_time}|${session.end_time}`;
+    const contentHashId = generateContentBasedId(contentKey);
+    
+    // Find existing by current ID
+    const existingByIdIndex = sessions.findIndex((s: Session) => s.id === session.id);
+    // Find existing by content hash (might be different record with same content)
+    const existingByHashIndex = sessions.findIndex((s: Session) => s.id === contentHashId);
+    
+    // Check if current ID matches the content hash
+    const needsMigration = session.id && session.id !== contentHashId;
+    
+    if (needsMigration && existingByIdIndex >= 0) {
+      // Old ID exists - need to migrate to content hash ID
+      const oldId = session.id;
+      session.id = contentHashId;
+      
+      if (existingByHashIndex >= 0 && existingByHashIndex !== existingByIdIndex) {
+        // Content hash already exists as a different record - merge!
+        // Keep the one with hash ID, remove the old one
+        sessions[existingByHashIndex] = session;
+        sessions.splice(existingByIdIndex, 1);
+        
+        // Update references from old ID to new hash ID
+        await this.migrateSessionReferences(oldId, contentHashId);
+      } else {
+        // Just update the ID in place
+        sessions[existingByIdIndex] = session;
+        
+        // Update references from old ID to new hash ID
+        await this.migrateSessionReferences(oldId, contentHashId);
+      }
+    } else if (existingByIdIndex >= 0) {
+      // ID already matches hash (or is the hash), just update
+      sessions[existingByIdIndex] = session;
+    } else if (existingByHashIndex >= 0) {
+      // No ID match but hash exists - update existing
+      session.id = contentHashId;
+      sessions[existingByHashIndex] = session;
     } else {
-      session.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Brand new session
+      session.id = contentHashId;
       sessions.push(session);
     }
     
@@ -583,15 +681,52 @@ class DataService {
   saveParticipant = async (participant: Participant): Promise<Participant> => {
     const allParticipants = await AsyncStorage.getItem(PARTICIPANTS_KEY);
     let participants = allParticipants ? JSON.parse(allParticipants) : [];
-    const existingIndex = participants.findIndex((p: Participant) => p.id === participant.id);
     
     // Add updated_at timestamp
     participant.updated_at = new Date().toISOString();
     
-    if (existingIndex >= 0) {
-      participants[existingIndex] = participant;
+    // Always compute content-based hash ID
+    const contentKey = `participant|${participant.club_id}|${(participant.first_name || '').toLowerCase()}|${(participant.last_name || '').toLowerCase()}`;
+    const contentHashId = generateContentBasedId(contentKey);
+    
+    // Find existing by current ID
+    const existingByIdIndex = participants.findIndex((p: Participant) => p.id === participant.id);
+    // Find existing by content hash (might be different record with same content)
+    const existingByHashIndex = participants.findIndex((p: Participant) => p.id === contentHashId);
+    
+    // Check if current ID matches the content hash
+    const needsMigration = participant.id && participant.id !== contentHashId;
+    
+    if (needsMigration && existingByIdIndex >= 0) {
+      // Old ID exists - need to migrate to content hash ID
+      const oldId = participant.id;
+      participant.id = contentHashId;
+      
+      if (existingByHashIndex >= 0 && existingByHashIndex !== existingByIdIndex) {
+        // Content hash already exists as a different record - merge!
+        // Keep the one with hash ID, remove the old one
+        participants[existingByHashIndex] = participant;
+        participants.splice(existingByIdIndex, 1);
+        
+        // Update references from old ID to new hash ID
+        await this.migrateParticipantReferences(oldId, contentHashId);
+      } else {
+        // Just update the ID in place
+        participants[existingByIdIndex] = participant;
+        
+        // Update references from old ID to new hash ID
+        await this.migrateParticipantReferences(oldId, contentHashId);
+      }
+    } else if (existingByIdIndex >= 0) {
+      // ID already matches hash (or is the hash), just update
+      participants[existingByIdIndex] = participant;
+    } else if (existingByHashIndex >= 0) {
+      // No ID match but hash exists - update existing
+      participant.id = contentHashId;
+      participants[existingByHashIndex] = participant;
     } else {
-      participant.id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Brand new participant
+      participant.id = contentHashId;
       participants.push(participant);
     }
     
@@ -631,10 +766,8 @@ class DataService {
   }
 
   getAttendance = async (sessionId: string, date: string): Promise<AttendanceRecord[]> => {
-    console.log('[DataService] getAttendance for session', sessionId, 'date', date);
     const local = await AsyncStorage.getItem(ATTENDANCE_KEY);
     const attendance = local ? JSON.parse(local).filter((a: AttendanceRecord) => a.session_id === sessionId && a.date === date) : [];
-    console.log('[DataService] Found', attendance.length, 'attendance records in local storage');
     return attendance;
   }
 
@@ -645,15 +778,11 @@ class DataService {
   }
 
   saveAttendance = async (records: AttendanceRecord[]): Promise<void> => {
-    console.log('[DataService] saveAttendance called with', records.length, 'records');
-    
     if (records.length === 0) {
-      console.log('[DataService] No records to save');
       return;
     }
     
     const firstRecord = records[0];
-    console.log('[DataService] Full first record:', JSON.stringify(firstRecord));
     
     const allAttendance = await AsyncStorage.getItem(ATTENDANCE_KEY);
     let attendance = allAttendance ? JSON.parse(allAttendance) : [];
@@ -661,7 +790,6 @@ class DataService {
     // Remove existing records for this session and date
     const sessionId = firstRecord.session_id;
     const date = firstRecord.date;
-    console.log('[DataService] Filtering by - sessionId:', sessionId, 'date:', date);
     attendance = attendance.filter((a: AttendanceRecord) => !(a.session_id === sessionId && a.date === date));
     
     // Add new records with timestamps (no ID - database will generate UUID on insert)
@@ -674,7 +802,6 @@ class DataService {
     
     attendance.push(...recordsWithTimestamps);
     
-    console.log('[DataService] Saving', attendance.length, 'total attendance records to local storage');
     // Save locally first
     await AsyncStorage.setItem(ATTENDANCE_KEY, JSON.stringify(attendance));
     
@@ -715,30 +842,27 @@ class DataService {
   }
 
   saveParticipantSessions = async (participantId: string, sessionIds: string[]): Promise<void> => {
-    console.log('[DataService] saveParticipantSessions called:', { participantId, sessionIds });
-    
     // Remove all existing relationships for this participant
     const local = await AsyncStorage.getItem(PARTICIPANT_SESSIONS_KEY);
     let allPS = local ? JSON.parse(local) : [];
-    console.log('[DataService] Current participant_sessions count:', allPS.length);
     
     allPS = allPS.filter((ps: ParticipantSession) => ps.participant_id !== participantId);
-    console.log('[DataService] After filtering participant', participantId, ':', allPS.length);
     
-    // Add new relationships
+    // Add new relationships with timestamp for conflict resolution
+    const now = new Date().toISOString();
     sessionIds.forEach(sessionId => {
-      const newPS: ParticipantSession = {
+      const newPS = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         participant_id: participantId,
-        session_id: sessionId
+        session_id: sessionId,
+        created_at: now,
+        updated_at: now
       };
       allPS.push(newPS);
-      console.log('[DataService] Added participant_session:', newPS);
     });
     
     // Save locally first
     await AsyncStorage.setItem(PARTICIPANT_SESSIONS_KEY, JSON.stringify(allPS));
-    console.log('[DataService] ✅ Saved participant_sessions. Total count:', allPS.length);
     
     // Cloud sync will be handled by periodic SyncService
   }

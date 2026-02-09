@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Session } from '@supabase/supabase-js';
+import { Session, AuthApiError } from '@supabase/supabase-js';
 
 /**
  * Centralized auth session manager to prevent lock contention
@@ -37,18 +37,45 @@ class AuthManager {
 
   private async _fetchSession(): Promise<Session | null> {
     try {
-        const { data, error } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+      
       if (error) {
-        console.error('Auth session error:', error);
+        // Handle invalid refresh token error - sign out and clear invalid session
+        if (error instanceof AuthApiError && 
+            (error.message.includes('Refresh Token') || 
+             error.message.includes('refresh_token') ||
+             error.code === 'refresh_token_not_found')) {
+          await this.clearInvalidSession();
+          return null;
+        }
         return null;
       }
       
       this.cachedSession = data.session;
       this.lastFetch = Date.now();
       return data.session;
-    } catch (error) {
-      console.error('Failed to get session:', error);
+    } catch (error: any) {
+      // Also catch errors thrown as exceptions
+      if (error?.message?.includes('Refresh Token') || 
+          error?.message?.includes('refresh_token')) {
+        await this.clearInvalidSession();
+        return null;
+      }
       return null;
+    }
+  }
+
+  /**
+   * Clear invalid session data when refresh token is invalid
+   */
+  private async clearInvalidSession(): Promise<void> {
+    try {
+      // Clear cached session
+      this.invalidateCache();
+      // Sign out to clear stored tokens
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      // Silent fail
     }
   }
 

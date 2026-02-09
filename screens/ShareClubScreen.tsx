@@ -19,7 +19,6 @@ export default function ShareClubScreen({ route, navigation }: any) {
       const code = await syncService.getClubShareCode(clubId);
       setShareCode(code);
     } catch (error) {
-      console.error('Error loading share code:', error);
       Alert.alert(t('common.error'), t('share.errorLoading'));
     } finally {
       setLoading(false);
@@ -35,7 +34,7 @@ export default function ShareClubScreen({ route, navigation }: any) {
         title: `${t('share.shareMessageTitle').replace('{{clubName}}', clubName)}`,
       });
     } catch (error) {
-      console.error('Error sharing:', error);
+      // Silent fail
     }
   };
 

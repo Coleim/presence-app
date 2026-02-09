@@ -8,8 +8,6 @@ const redirectTo = makeRedirectUri({
   path: 'auth/callback'
 });
 
-console.log('[Supabase] 📍 Redirect URL configured:', redirectTo);
-
 
 // Check if Supabase is configured
 

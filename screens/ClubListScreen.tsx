@@ -24,7 +24,7 @@ export default function ClubListScreen({ navigation }) {
       syncService.stopAutoSync();
       navigation.navigate('Auth');
     } catch (error) {
-      console.error('Logout error:', error);
+      // Silent fail
     }
   };
 

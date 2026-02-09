@@ -18,7 +18,6 @@ export default function HomeScreen({ navigation }: any) {
   const wasSyncingRef = useRef(false);
 
   useEffect(() => {
-    console.log('[HomeScreen] Component mounted');
     const init = async () => {
       await checkAuth();
       await fetchData();
@@ -27,9 +26,7 @@ export default function HomeScreen({ navigation }: any) {
   }, []); // Only run once on mount
 
   useEffect(() => {
-    console.log('[HomeScreen] Adding focus listener');
     const unsubscribe = navigation.addListener('focus', () => {
-      console.log('[HomeScreen] Screen focused, fetching data');
       fetchData();
       // Always refetch sessions to update attendance counts
       if (selectedClub) {
@@ -44,7 +41,6 @@ export default function HomeScreen({ navigation }: any) {
     let unsubscribe: (() => void) | undefined;
     
     if (isAuthenticated) {
-      console.log('[HomeScreen] User authenticated, starting auto-sync');
       // Start auto-sync
       syncService.startAutoSync();
       
@@ -62,13 +58,10 @@ export default function HomeScreen({ navigation }: any) {
           
           // Refresh data when sync completes
           if (wasSyncing && !status.isSyncing) {
-            console.log('[HomeScreen] Sync completed, refreshing data');
             fetchData();
           }
         }
       });
-    } else {
-      console.log('[HomeScreen] User not authenticated, skipping auto-sync');
     }
     
     return () => {
@@ -80,9 +73,7 @@ export default function HomeScreen({ navigation }: any) {
   }, [isAuthenticated]);
 
   const checkAuth = async () => {
-    console.log('[HomeScreen] checkAuth called');
     const isAuth = await authManager.isAuthenticated();
-    console.log('[HomeScreen] isAuthenticated:', isAuth);
     setIsAuthenticated(isAuth);
   };
 
@@ -127,18 +118,7 @@ export default function HomeScreen({ navigation }: any) {
   };
 
   const fetchSessionsForClub = async (club: any) => {
-    console.log('[HomeScreen] Fetching sessions for club:', club.id, club.name);
     const sessions = await dataService.getSessions(club.id);
-    console.log('[HomeScreen] Found sessions:', sessions.length);
-    sessions.forEach((session, idx) => {
-      console.log(`[HomeScreen] Session ${idx + 1}:`);
-      console.log(`  - id: ${session.id}`);
-      console.log(`  - day_of_week: ${session.day_of_week}`);
-      console.log(`  - start_time: ${session.start_time}`);
-      console.log(`  - end_time: ${session.end_time}`);
-      console.log(`  - created_at: ${session.created_at}`);
-      console.log(`  - updated_at: ${session.updated_at}`);
-    });
     const now = new Date();
     const upcomingBasic = [];
     const weeksToGenerate = 4; // Generate 4 weeks of sessions
@@ -159,7 +139,6 @@ export default function HomeScreen({ navigation }: any) {
     for (const session of sessions) {
       const dayIndex = getDayIndex(session.day_of_week);      
       if (dayIndex === -1) {
-        console.warn('Unknown day name:', session.day_of_week);
         continue; // Skip this session if day is not recognized
       }
       
@@ -191,7 +170,6 @@ export default function HomeScreen({ navigation }: any) {
         
         // Skip if this session's expiration window has passed
         if (expirationTime <= now) {
-          console.info(`HomeScreen: skipping expired session ${session.day_of_week} ${session.start_time} (expired at ${expirationTime.toLocaleString('fr-FR')}, hasAttendance: ${hasAttendance})`);
           continue;
         }
         
@@ -261,7 +239,6 @@ export default function HomeScreen({ navigation }: any) {
         hasAttendance: attendance && attendance.length > 0
       };
     } catch (error) {
-      console.error('Error getting attendance info:', error);
       return { presentCount: 0, hasAttendance: false };
     }
   };
@@ -271,7 +248,6 @@ export default function HomeScreen({ navigation }: any) {
       const participants = await dataService.getParticipantsWithSessions(session.club_id);
       return participants.filter(p => p.preferred_session_ids?.includes(session.id)).length;
     } catch (error) {
-      console.error('Error getting assigned count:', error);
       return 0;
     }
   };
@@ -378,7 +354,6 @@ export default function HomeScreen({ navigation }: any) {
                 onPress={() => {
                   if (isActive) {
                     const { dateObj, ...sessionWithoutDate } = item;
-                    console.log('[HomeScreen] Navigating to Attendance with date:', item.date, 'session:', item.id);
                     navigation.navigate('Attendance', { 
                       session: sessionWithoutDate, 
                       date: item.date

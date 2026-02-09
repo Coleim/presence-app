@@ -39,7 +39,6 @@ export default function SessionSelectionScreen({ route, navigation }) {
       const dayIndex = getDayIndex(session.day_of_week);
       
       if (dayIndex === -1) {
-        console.warn('Unknown day name:', session.day_of_week);
         return; // Skip this session
       }
       

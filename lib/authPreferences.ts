@@ -9,7 +9,7 @@ export const setNeverAskAgain = async (value: boolean): Promise<void> => {
   try {
     await AsyncStorage.setItem(NEVER_ASK_AGAIN_KEY, value.toString());
   } catch (error) {
-    console.error('Error saving never ask again preference:', error);
+    // Silent fail
   }
 };
 
@@ -21,7 +21,6 @@ export const getNeverAskAgain = async (): Promise<boolean> => {
     const value = await AsyncStorage.getItem(NEVER_ASK_AGAIN_KEY);
     return value === 'true';
   } catch (error) {
-    console.error('Error reading never ask again preference:', error);
     return false;
   }
 };
@@ -34,6 +33,6 @@ export const resetNeverAskAgain = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(NEVER_ASK_AGAIN_KEY);
   } catch (error) {
-    console.error('Error resetting never ask again preference:', error);
+    // Silent fail
   }
 };

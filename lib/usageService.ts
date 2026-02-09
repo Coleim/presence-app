@@ -37,7 +37,6 @@ export const usageService = {
         clubMemberships,
       };
     } catch (error) {
-      console.error('Error fetching user usage stats:', error);
       return {
         clubsOwned: 0,
         clubMemberships: 0,
@@ -61,7 +60,6 @@ export const usageService = {
         sessions: sessions.length,
       };
     } catch (error) {
-      console.error('Error fetching club usage stats:', error);
       return {
         participants: 0,
         sessions: 0,

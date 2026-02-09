@@ -72,6 +72,27 @@ jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(() => Promise.resolve()),
 }));
 
+jest.mock('expo-web-browser', () => ({
+  openAuthSessionAsync: jest.fn(() => Promise.resolve({ type: 'success', url: '' })),
+  openBrowserAsync: jest.fn(() => Promise.resolve({ type: 'opened' })),
+  maybeCompleteAuthSession: jest.fn(() => ({ type: 'success' })),
+  dismissBrowser: jest.fn(),
+}));
+
+jest.mock('expo-auth-session/build/QueryParams', () => ({
+  getQueryParams: jest.fn(() => ({})),
+}));
+
+jest.mock('expo-modules-core', () => ({
+  EventEmitter: jest.fn(() => ({
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    emit: jest.fn(),
+  })),
+  NativeModulesProxy: {},
+  requireNativeViewManager: jest.fn(),
+}));
+
 jest.mock('@react-native-google-signin/google-signin', () => ({
   GoogleSignin: {
     configure: jest.fn(),

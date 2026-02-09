@@ -37,7 +37,6 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         const { data, error } = await supabase.rpc('generate_share_code');
         
         if (error) {
-          console.error('[ClubDetailsScreen] Error calling generate_share_code:', error);
           return;
         }
         
@@ -56,7 +55,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
           await dataService.saveClub(club);
         }
       } catch (error) {
-        console.error('[ClubDetailsScreen] Error generating share code:', error);
+        // Silent fail
       }
     }
   };
@@ -68,7 +67,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
       syncService.stopAutoSync();
       navigation.navigate('Auth');
     } catch (error) {
-      console.error('Logout error:', error);
+      // Silent fail
     }
   };
 
@@ -153,12 +152,10 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
             try {
               // Delete locally first (always works)
               await dataService.deleteClub(club.id);
-              console.log('[ClubDetails] Club deleted locally');
               
               // Navigate immediately after local deletion
               navigation.goBack();
             } catch (error) {
-              console.error('[ClubDetails] Error deleting club:', error);
               Alert.alert(t('common.error'), t('club.errorDeletingClub'));
             }
           }
@@ -242,7 +239,7 @@ export default function ClubDetailsScreen({ route, navigation }: any) {
         title: `Partager le club ${club.name}`
       });
     } catch (error) {
-      console.error('Error sharing:', error);
+      // Silent fail
     }
   };
 

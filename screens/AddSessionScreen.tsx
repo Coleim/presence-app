@@ -47,7 +47,7 @@ export default function AddSessionScreen({ route, navigation }) {
       const stats = await usageService.getClubUsageStats(clubId);
       setSessionCount(stats.sessions);
     } catch (error) {
-      console.error('Error checking session limit:', error);
+      // Silent fail
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +115,6 @@ export default function AddSessionScreen({ route, navigation }) {
       // Navigate after local save completes
       navigation.goBack();
     } catch (error) {
-      console.error('Error adding session:', error);
       // Handle database constraint errors
       if (error.message && error.message.includes('cannot have more than 10 sessions')) {
         Alert.alert(

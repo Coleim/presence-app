@@ -18,16 +18,8 @@ export async function signInWithOAuth(provider: 'google' | 'github') {
   });
 
   if (error) throw error;
-
-  console.log('[Auth] 🌐 OAuth URL:', data.url);
-  console.log('[Auth] 📍 Redirect URL:', redirectTo);
-  console.log('[Auth] 🚀 Opening browser...');
   
   const res = await WebBrowser.openAuthSessionAsync(data.url!, redirectTo);
-  
-  console.log('[Auth] ✅ Browser returned!');
-  console.log('[Auth] 📱 Result type:', res.type);
-  console.log('[Auth] 🔗 Result:', JSON.stringify(res, null, 2));
 
   if (res.type === 'success') {
     WebBrowser.dismissBrowser();
@@ -48,7 +40,6 @@ export async function signInWithOAuth(provider: 'google' | 'github') {
 export async function signOut() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    console.error("No session to sign out")
     return;
   }
   

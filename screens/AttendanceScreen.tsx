@@ -8,7 +8,6 @@ import { useTranslation } from '../contexts/LanguageContext';
 export default function AttendanceScreen({ route, navigation }: any) {
   const { t, language, translateDay } = useTranslation();
   const { session, date } = route.params;
-  console.log('[AttendanceScreen] Received params - session.id:', session?.id, 'date:', date);
   const [participants, setParticipants] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any>({});
 
@@ -59,8 +58,6 @@ export default function AttendanceScreen({ route, navigation }: any) {
       date,
       present: attendance[pid]
     }));
-    console.log('[AttendanceScreen] Saving attendance - date:', date, 'records:', records.length);
-    console.log('[AttendanceScreen] First record:', JSON.stringify(records[0]));
     dataService.checkOnline();
     // Wait for local save (fast), cloud sync happens in background
     await dataService.saveAttendance(records);
@@ -104,11 +101,7 @@ export default function AttendanceScreen({ route, navigation }: any) {
       });
       
       if (result.action === Share.sharedAction) {
-        if (result.activityType) {
-          console.info('Shared with activity type:', result.activityType);
-        } else {
-          console.info('Shared successfully');
-        }
+        // Successfully shared
       }
     } catch (error: any) {
       Alert.alert(t('common.error'), t('attendance.errorSharing'));

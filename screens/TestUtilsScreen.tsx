@@ -63,7 +63,7 @@ export default function TestUtilsScreen({ route, navigation }) {
         
         setProgress(`${i + 1}/20 - ${participant.first_name} ${participant.last_name}`);
       } catch (error) {
-        console.error(`Erreur pour ${participant.first_name}:`, error);
+        // Silent fail
       }
     }
     
@@ -95,7 +95,7 @@ export default function TestUtilsScreen({ route, navigation }) {
                 await dataService.deleteParticipant(testParticipants[i].id);
                 setProgress(`${i + 1}/${testParticipants.length} supprimés`);
               } catch (error) {
-                console.error('Erreur suppression:', error);
+                // Silent fail
               }
             }
             

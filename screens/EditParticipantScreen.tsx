@@ -53,7 +53,6 @@ export default function EditParticipantScreen({ route, navigation }: any) {
 
   const loadParticipantSessions = async () => {
     const sessionIds = await dataService.getParticipantSessions(participant.id);
-    console.log('[EditParticipant] Loaded participant sessions:', sessionIds);
     setSelectedSessions(sessionIds);
   };
 

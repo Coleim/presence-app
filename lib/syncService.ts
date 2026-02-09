@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { authManager } from './authManager';
-import { dataService } from './dataService';
+import { dataService, generateContentBasedId } from './dataService';
 
 const LAST_SYNC_KEY = 'last_sync_timestamp';
 const SYNC_INTERVAL = 60000; // 60 seconds (increased to reduce lock contention)
@@ -18,18 +18,199 @@ class SyncService {
   private isSyncing = false;
   private lastSyncTime = 0;
   private statusListeners: ((status: SyncStatus) => void)[] = [];
+  private hasMigratedSessions = false; // Only migrate once per app session
+
+  /**
+   * One-time migration: Update sessions to use content-based hash IDs
+   * This fixes sessions that were created with random UUIDs
+   */
+  private migrateSessionsToHashIds = async (): Promise<void> => {
+    if (this.hasMigratedSessions) return;
+    
+    console.log('[Migration] Starting session ID migration to content hashes...');
+    
+    try {
+      // Get all sessions from server
+      const { data: serverSessions, error } = await supabase
+        .from('sessions')
+        .select('*');
+      
+      if (error || !serverSessions) {
+        console.log('[Migration] Failed to fetch sessions:', error);
+        return;
+      }
+
+      for (const session of serverSessions) {
+        const contentKey = `session|${session.club_id}|${session.day_of_week}|${session.start_time}|${session.end_time}`;
+        const hashId = generateContentBasedId(contentKey);
+        
+        if (session.id !== hashId) {
+          console.log(`[Migration] Session needs migration:`);
+          console.log(`  Old ID: ${session.id}`);
+          console.log(`  New Hash ID: ${hashId}`);
+          console.log(`  Content: ${session.day_of_week} ${session.start_time}-${session.end_time}`);
+          
+          // Check if a session with this hash already exists (duplicate)
+          const { data: existing } = await supabase
+            .from('sessions')
+            .select('id')
+            .eq('id', hashId)
+            .maybeSingle();
+          
+          if (existing) {
+            console.log(`  Hash ID already exists - will delete duplicate and update references`);
+            
+            // Update participant_sessions to point to the existing hash ID
+            await supabase
+              .from('participant_sessions')
+              .update({ session_id: hashId })
+              .eq('session_id', session.id);
+            
+            // Update attendance to point to existing hash ID
+            await supabase
+              .from('attendance')
+              .update({ session_id: hashId })
+              .eq('session_id', session.id);
+            
+            // Delete the duplicate session (the one with old UUID)
+            await supabase
+              .from('sessions')
+              .delete()
+              .eq('id', session.id);
+            
+            console.log(`  ✓ Merged duplicate into existing hash ID`);
+          } else {
+            // No duplicate - create new session with hash ID, update references, delete old
+            
+            // 1. Create new session with hash ID
+            const { error: insertError } = await supabase
+              .from('sessions')
+              .insert({
+                id: hashId,
+                club_id: session.club_id,
+                day_of_week: session.day_of_week,
+                start_time: session.start_time,
+                end_time: session.end_time
+              });
+            
+            if (insertError) {
+              console.log(`  ✗ Failed to create new session:`, insertError);
+              continue;
+            }
+            
+            // 2. Update participant_sessions to use new ID
+            await supabase
+              .from('participant_sessions')
+              .update({ session_id: hashId })
+              .eq('session_id', session.id);
+            
+            // 3. Update attendance to use new ID
+            await supabase
+              .from('attendance')
+              .update({ session_id: hashId })
+              .eq('session_id', session.id);
+            
+            // 4. Delete old session
+            await supabase
+              .from('sessions')
+              .delete()
+              .eq('id', session.id);
+            
+            console.log(`  ✓ Migrated to hash ID`);
+          }
+        }
+      }
+      
+      // Also migrate local storage
+      await this.migrateLocalSessionsToHashIds();
+      
+      this.hasMigratedSessions = true;
+      console.log('[Migration] Session migration complete!');
+      
+    } catch (err) {
+      console.log('[Migration] Error during migration:', err);
+    }
+  };
+
+  /**
+   * Migrate local sessions to hash IDs
+   */
+  private migrateLocalSessionsToHashIds = async (): Promise<void> => {
+    console.log('[Migration] Migrating local sessions...');
+    
+    const sessionsData = await AsyncStorage.getItem('@presence_app:sessions');
+    if (!sessionsData) return;
+    
+    const sessions = JSON.parse(sessionsData);
+    const idMapping: Map<string, string> = new Map(); // old -> new
+    const seenHashes = new Set<string>();
+    const migratedSessions: any[] = [];
+    
+    for (const session of sessions) {
+      const contentKey = `session|${session.club_id}|${session.day_of_week}|${session.start_time}|${session.end_time}`;
+      const hashId = generateContentBasedId(contentKey);
+      
+      if (seenHashes.has(hashId)) {
+        // Duplicate - skip this session but record mapping
+        console.log(`  Skipping duplicate: ${session.id} -> ${hashId}`);
+        idMapping.set(session.id, hashId);
+        continue;
+      }
+      
+      seenHashes.add(hashId);
+      
+      if (session.id !== hashId) {
+        console.log(`  Migrating: ${session.id} -> ${hashId}`);
+        idMapping.set(session.id, hashId);
+        session.id = hashId;
+      }
+      
+      migratedSessions.push(session);
+    }
+    
+    // Save migrated sessions
+    await AsyncStorage.setItem('@presence_app:sessions', JSON.stringify(migratedSessions));
+    
+    // Update participant_sessions references
+    const psData = await AsyncStorage.getItem('@presence_app:participant_sessions');
+    if (psData) {
+      const participantSessions = JSON.parse(psData);
+      const updatedPS = participantSessions.map((ps: any) => {
+        const newId = idMapping.get(ps.session_id);
+        if (newId) {
+          console.log(`  PS: ${ps.session_id} -> ${newId}`);
+          return { ...ps, session_id: newId };
+        }
+        return ps;
+      });
+      await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPS));
+    }
+    
+    // Update attendance references
+    const attData = await AsyncStorage.getItem('@presence_app:attendance');
+    if (attData) {
+      const attendance = JSON.parse(attData);
+      const updatedAtt = attendance.map((a: any) => {
+        const newId = idMapping.get(a.session_id);
+        if (newId) {
+          return { ...a, session_id: newId };
+        }
+        return a;
+      });
+      await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(updatedAtt));
+    }
+    
+    console.log(`[Migration] Local migration done. Migrated ${idMapping.size} session IDs.`);
+  };
 
   // Start auto-sync every 30 seconds
   startAutoSync = async () => {
     if (this.syncInterval) {
-      console.log('[SyncService] Auto-sync already running');
       return; // Already running
     }
     
-    console.log('[SyncService] Starting auto-sync...');
-    
     // Initial sync (don't await to not block)
-    this.syncNow().catch(err => console.log('[SyncService] Initial sync failed:', err));
+    this.syncNow().catch(() => {});
     
     // Set up interval
     this.syncInterval = setInterval(async () => {
@@ -41,45 +222,50 @@ class SyncService {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
-      console.log('Auto-sync stopped');
     }
   };
 
   syncNow = async (): Promise<boolean> => {
     if (this.isSyncing) {
-      console.log('[SyncService] Sync already in progress, skipping...');
       return false;
     }
 
     // Debounce: prevent syncs that are too close together
     const now = Date.now();
     if (now - this.lastSyncTime < MIN_SYNC_DELAY) {
-      console.log('[SyncService] Sync called too soon after last sync, skipping...');
       return false;
     }
     this.lastSyncTime = now;
+
+    const syncStart = Date.now();
+    const timer = (label: string, start: number) => {
+      console.log(`⏱️ [SYNC TIMER] ${label}: ${Date.now() - start}ms`);
+      return Date.now();
+    };
 
     try {
       this.isSyncing = true;
       this.notifyListeners({ isSyncing: true, lastSync: await this.getLastSyncTime(), error: null });
 
       // Check if user is authenticated (using cached session)
+      let stepStart = Date.now();
       const session = await authManager.getSession();
+      stepStart = timer('Auth check', stepStart);
       
       if (!session) {
-        console.log('[SyncService] Not authenticated, skipping sync');
         this.isSyncing = false;
         return false;
       }
 
-      console.log('[SyncService] ========================================');
-      console.log('[SyncService] Starting sync...');
-      console.log('[SyncService] ========================================');
+      // ============================================
+      // STEP 0: MIGRATE SESSIONS TO HASH IDs (one-time)
+      // ============================================
+      await this.migrateSessionsToHashIds();
+      stepStart = timer('Step 0 - Migration', stepStart);
 
       // ============================================
       // STEP 1: DOWNLOAD ALL DATA FROM SERVER FIRST
       // ============================================
-      console.log('[SyncService] STEP 1: Downloading all data from server...');
       
       // Download all clubs user has access to
       const { data: serverClubs, error: clubsError } = await supabase
@@ -87,9 +273,7 @@ class SyncService {
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (clubsError) {
-        console.error('[SyncService] Error fetching clubs:', clubsError);
-      }
+
 
       // Download all data for these clubs
       const serverData: any = {
@@ -101,97 +285,40 @@ class SyncService {
       };
 
       if (serverClubs && serverClubs.length > 0) {
-        console.log(`[SyncService] Found ${serverClubs.length} clubs on server`);
         const clubIds = serverClubs.map(c => c.id);
 
-        // Download sessions for all clubs
-        const { data: serverSessions } = await supabase
-          .from('sessions')
-          .select('*')
-          .in('club_id', clubIds);
-        serverData.sessions = serverSessions || [];
-        console.log(`[SyncService] Downloaded ${serverData.sessions.length} sessions`);
+        // Download sessions and participants in PARALLEL (they're independent)
+        const [sessionsResult, participantsResult] = await Promise.all([
+          supabase.from('sessions').select('*').in('club_id', clubIds),
+          supabase.from('participants').select('*').in('club_id', clubIds)
+        ]);
+        
+        serverData.sessions = sessionsResult.data || [];
+        serverData.participants = participantsResult.data || [];
 
-        // Download participants for all clubs
-        const { data: serverParticipants } = await supabase
-          .from('participants')
-          .select('*')
-          .in('club_id', clubIds);
-        serverData.participants = serverParticipants || [];
-        console.log(`[SyncService] Downloaded ${serverData.participants.length} participants`);
+        // Now download participant_sessions and attendance in PARALLEL
+        // (they depend on results above but not on each other)
+        const participantIds = serverData.participants.map((p: any) => p.id);
+        const sessionIds = serverData.sessions.map((s: any) => s.id);
 
-        // Download participant_sessions for all participants
-        if (serverData.participants.length > 0) {
-          const participantIds = serverData.participants.map((p: any) => p.id);
-          console.log(`[SyncService] Downloading participant_sessions for ${participantIds.length} participants:`, participantIds);
-          const { data: serverParticipantSessions, error: psError } = await supabase
-            .from('participant_sessions')
-            .select('*')
-            .in('participant_id', participantIds);
-          
-          if (psError) {
-            console.error('[SyncService] Error downloading participant_sessions:', psError);
-          }
-          
-          serverData.participant_sessions = serverParticipantSessions || [];
-          console.log(`[SyncService] Downloaded ${serverData.participant_sessions.length} participant_sessions`);
-          
-          if (serverData.participant_sessions.length > 0) {
-            console.log('[SyncService] Participant sessions details:', JSON.stringify(serverData.participant_sessions, null, 2));
-          }
-        } else {
-          serverData.participant_sessions = [];
-          console.log('[SyncService] No participants found, skipping participant_sessions download');
-        }
+        const [psResult, attendanceResult] = await Promise.all([
+          participantIds.length > 0 
+            ? supabase.from('participant_sessions').select('*').in('participant_id', participantIds)
+            : Promise.resolve({ data: [] }),
+          sessionIds.length > 0
+            ? supabase.from('attendance').select('*').in('session_id', sessionIds)
+            : Promise.resolve({ data: [] })
+        ]);
 
-        // Download attendance for all clubs (using session IDs since attendance doesn't have club_id)
-        if (serverData.sessions.length > 0) {
-          const sessionIds = serverData.sessions.map((s: any) => s.id);
-          
-          // Chunk session IDs to avoid query limits (PostgreSQL IN clause limit)
-          const CHUNK_SIZE = 500;
-          const attendanceRecords: any[] = [];
-          
-          for (let i = 0; i < sessionIds.length; i += CHUNK_SIZE) {
-            const chunk = sessionIds.slice(i, i + CHUNK_SIZE);
-            const { data: chunkAttendance, error: attendanceError } = await supabase
-              .from('attendance')
-              .select('*')
-              .in('session_id', chunk);
-            
-            if (attendanceError) {
-              console.error(`[SyncService] Error downloading attendance chunk ${i / CHUNK_SIZE + 1}:`, attendanceError);
-            } else if (chunkAttendance) {
-              attendanceRecords.push(...chunkAttendance);
-            }
-          }
-          
-          serverData.attendance = attendanceRecords;
-          console.log(`[SyncService] Downloaded ${serverData.attendance.length} attendance records from ${Math.ceil(sessionIds.length / CHUNK_SIZE)} chunks`);
-        } else {
-          serverData.attendance = [];
-          console.log('[SyncService] No sessions found, skipping attendance download');
-        }
+        serverData.participant_sessions = psResult.data || [];
+        serverData.attendance = attendanceResult.data || [];
       }
+      stepStart = timer('Step 1 - Download from server', stepStart);
 
       // ============================================
-      // STEP 2: MERGE SERVER DATA WITH LOCAL
-      // For non-owners: server always wins (except attendance)
-      // For owners: most recent timestamp wins
+      // STEP 2: UPLOAD LOCAL CHANGES TO SERVER FIRST
+      // This ensures local IDs get mapped to server UUIDs before merging
       // ============================================
-      console.log('[SyncService] STEP 2: Merging server data with local...');
-      
-      await this.mergeDataWithLocal('clubs', serverData.clubs, session.user.id);
-      await this.mergeDataWithLocal('sessions', serverData.sessions, session.user.id);
-      await this.mergeDataWithLocal('participants', serverData.participants, session.user.id);
-      console.log(`[SyncService] About to merge ${serverData.participant_sessions?.length || 0} participant_sessions`);
-      await this.mergeDataWithLocal('participant_sessions', serverData.participant_sessions || [], session.user.id);
-      await this.mergeDataWithLocal('attendance', serverData.attendance, session.user.id);
-
-      // ============================================
-      // STEP 3: UPLOAD LOCAL CHANGES TO SERVER
-      // ============================================
-      console.log('[SyncService] STEP 3: Uploading local changes to server...');
       
       const localClubs = await dataService.getClubs();
       const uploadedIds: any = {
@@ -199,176 +326,302 @@ class SyncService {
         participants: new Set<string>()
       };
 
-      // Upload local-only clubs
+      // Helper functions for batching
+      const isValidUUID = (id: string) => {
+        if (!id) return false;
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(id);
+      };
+      
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+
+      // Collect all data to upload in batches
+      const sessionsToUpsert: any[] = [];
+      const participantsToUpsert: any[] = [];
+      const participantSessionsToUpsert: any[] = [];
+      const attendanceToUpsert: any[] = [];
+      const clubsToUpsert: any[] = [];
+
+      // Upload local-only clubs (these need individual handling for ID mapping)
       for (const club of localClubs) {
         if (club.id.startsWith('local-')) {
           await this.uploadLocalClub(club, session.user.id, uploadedIds);
         } else if (club.owner_id === session.user.id) {
-          // Upload updates for clubs we own
-          await this.uploadToSupabase('clubs', club, 'UPDATE');
+          clubsToUpsert.push(club);
         }
       }
 
-      // Upload sessions/participants/attendance for all clubs
+      // Batch upsert clubs
+      if (clubsToUpsert.length > 0) {
+        await supabase.from('clubs').upsert(clubsToUpsert, { onConflict: 'id' });
+      }
+
+      // Collect sessions and participants (only non-local IDs for batch)
       for (const club of localClubs) {
-        const isOwner = club.owner_id === session.user.id;
-        
-        // Upload sessions
         const localSessions = await dataService.getSessions(club.id);
-        for (const session of localSessions) {
-          const isLocal = session.id.startsWith('local-');
-          const serverSession = await this.uploadToSupabase('sessions', session, isLocal ? 'INSERT' : 'UPDATE');
-          if (serverSession && isLocal) {
-            uploadedIds.sessions.add(serverSession.id);
-            await this.updateLocalId('sessions', session.id, serverSession.id);
+        for (const sess of localSessions) {
+          if (sess.id.startsWith('local-')) {
+            // Local IDs need individual handling for ID mapping
+            const serverSession = await this.uploadToSupabase('sessions', sess, 'INSERT');
+            if (serverSession) {
+              uploadedIds.sessions.add(serverSession.id);
+              await this.updateLocalId('sessions', sess.id, serverSession.id);
+            }
+          } else {
+            sessionsToUpsert.push(sess);
           }
         }
 
-        // Upload participants
         const localParticipants = await dataService.getParticipants(club.id);
         for (const participant of localParticipants) {
-          const isLocal = participant.id.startsWith('local-');
-          const serverParticipant = await this.uploadToSupabase('participants', participant, isLocal ? 'INSERT' : 'UPDATE');
-          if (serverParticipant && isLocal) {
-            uploadedIds.participants.add(serverParticipant.id);
-            await this.updateLocalId('participants', participant.id, serverParticipant.id);
-          }
-        }
-
-        // Upload participant_sessions
-        const participantIds = localParticipants.map(p => p.id);
-        const allPS = await AsyncStorage.getItem('@presence_app:participant_sessions');
-        if (allPS) {
-          const psList = JSON.parse(allPS);
+          // Strip local-only fields that don't exist in DB schema
+          const { preferred_session_ids, ...dbParticipant } = participant as any;
           
-          // UUID validation regex
-          const isValidUUID = (id: string) => {
-            if (!id) return false;
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            return uuidRegex.test(id);
-          };
-          
-          // Helper to generate UUID v4
-          const generateUUID = () => {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-              const r = Math.random() * 16 | 0;
-              const v = c === 'x' ? r : (r & 0x3 | 0x8);
-              return v.toString(16);
-            });
-          };
-          
-          let uploadedCount = 0;
-          const updatedPsList = [...psList];
-          
-          for (let i = 0; i < updatedPsList.length; i++) {
-            const ps = updatedPsList[i];
-            if (!participantIds.includes(ps.participant_id)) continue;
-            
-            // Only upload if both participant_id and session_id are valid UUIDs
-            if (isValidUUID(ps.participant_id) && isValidUUID(ps.session_id)) {
-              // If the record's own id is not a valid UUID, generate one
-              if (!isValidUUID(ps.id)) {
-                ps.id = generateUUID();
-                updatedPsList[i] = ps;
-              }
-              try {
-                await this.uploadToSupabase('participant_sessions', ps, 'UPDATE');
-                uploadedCount++;
-              } catch (error) {
-                console.error('[SyncService] Failed to upload participant_session:', error);
-              }
-            } else {
-              console.log('[SyncService] Skipping participant_session with local IDs:', ps);
+          if (participant.id.startsWith('local-')) {
+            const serverParticipant = await this.uploadToSupabase('participants', dbParticipant, 'INSERT');
+            if (serverParticipant) {
+              uploadedIds.participants.add(serverParticipant.id);
+              await this.updateLocalId('participants', participant.id, serverParticipant.id);
             }
+          } else {
+            participantsToUpsert.push(dbParticipant);
           }
-          
-          // Save updated list with new UUIDs back to storage
-          await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPsList));
-          console.log(`[SyncService] Uploaded ${uploadedCount} participant_sessions`);
-        }
-
-        // Upload attendance
-        const allAttendance = await AsyncStorage.getItem('@presence_app:attendance');
-        if (allAttendance) {
-          const attendanceList = JSON.parse(allAttendance);
-          console.log(`[SyncService] Found ${attendanceList.length} total attendance records in storage`);
-          
-          const clubSessionIds = new Set(localSessions.map(s => s.id));
-          const clubAttendance = attendanceList.filter((a: any) => clubSessionIds.has(a.session_id));
-          console.log(`[SyncService] Found ${clubAttendance.length} attendance records for this club`);
-          
-          // UUID validation regex
-          const isValidUUID = (id: string) => {
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            return !id || id === 'undefined' || uuidRegex.test(id);
-          };
-          
-          let uploadedCount = 0;
-          let skippedCount = 0;
-          
-          for (const attendance of clubAttendance) {
-            // Skip if has local IDs, missing required fields, or invalid UUID format
-            if (attendance.participant_id?.startsWith('local-') || 
-                attendance.session_id?.startsWith('local-') ||
-                !attendance.participant_id ||
-                !attendance.session_id ||
-                !isValidUUID(attendance.id) ||
-                !isValidUUID(attendance.participant_id) ||
-                !isValidUUID(attendance.session_id)) {
-              console.log('[SyncService] Skipping invalid attendance record:', {
-                id: attendance.id,
-                participant_id: attendance.participant_id,
-                session_id: attendance.session_id,
-                date: attendance.date
-              });
-              skippedCount++;
-              continue;
-            }
-            console.log('[SyncService] Uploading attendance record:', {
-              id: attendance.id,
-              participant_id: attendance.participant_id,
-              session_id: attendance.session_id,
-              date: attendance.date,
-              present: attendance.present
-            });
-            try {
-              await this.uploadToSupabase('attendance', attendance, 'UPDATE');
-              uploadedCount++;
-              console.log('[SyncService] ✅ Attendance record uploaded successfully');
-            } catch (error) {
-              console.error('[SyncService] ❌ Failed to upload attendance record:', error);
-            }
-          }
-          
-          console.log(`[SyncService] Attendance sync summary: ${uploadedCount} uploaded, ${skippedCount} skipped`);
-        } else {
-          console.log('[SyncService] No attendance records found in storage');
         }
       }
+
+      // Batch upsert sessions and participants IN PARALLEL
+      const [sessionsUpsertResult, participantsUpsertResult] = await Promise.all([
+        sessionsToUpsert.length > 0 
+          ? supabase.from('sessions').upsert(sessionsToUpsert, { onConflict: 'id' })
+          : Promise.resolve({ error: null }),
+        participantsToUpsert.length > 0 
+          ? supabase.from('participants').upsert(participantsToUpsert, { onConflict: 'id' })
+          : Promise.resolve({ error: null })
+      ]);
+      
+      if (sessionsUpsertResult.error) {
+        console.error('[Upload] Sessions upsert FAILED:', sessionsUpsertResult.error.message);
+      }
+      if (participantsUpsertResult.error) {
+        console.error('[Upload] Participants upsert FAILED:', participantsUpsertResult.error.message);
+      }
+
+      // Collect participant_sessions and attendance for batch upsert IN PARALLEL
+      const [allPS, allAttendance] = await Promise.all([
+        AsyncStorage.getItem('@presence_app:participant_sessions'),
+        AsyncStorage.getItem('@presence_app:attendance')
+      ]);
+      
+      // Build set of valid IDs - use ONLY what's confirmed on server
+      // serverData is from Step 1 download, but we just uploaded more data
+      // The upsert should have added participantsToUpsert and sessionsToUpsert
+      // ONLY if the upserts succeeded, include the uploaded IDs
+      const serverParticipantIds = new Set(serverData.participants.map((p: any) => p.id));
+      const serverSessionIds = new Set(serverData.sessions.map((s: any) => s.id));
+      
+      // Only include uploaded IDs if the upsert succeeded
+      if (!participantsUpsertResult.error) {
+        for (const p of participantsToUpsert) {
+          serverParticipantIds.add(p.id);
+        }
+      }
+      if (!sessionsUpsertResult.error) {
+        for (const s of sessionsToUpsert) {
+          serverSessionIds.add(s.id);
+        }
+      }
+      
+      const validParticipantIds = serverParticipantIds;
+      const validSessionIds = serverSessionIds;
+      
+      console.log(`[Upload] Valid participants: ${validParticipantIds.size}, Valid sessions: ${validSessionIds.size}`);
+      
+      if (allPS) {
+        const psList = JSON.parse(allPS);
+        const updatedPsList = [...psList];
+        
+        console.log(`[Upload] Total participant_sessions in local storage: ${psList.length}`);
+        
+        // Use a Map to dedupe by composite key (participant_id + session_id)
+        // Keep the most recent record for each combination
+        const psMap = new Map<string, any>();
+        
+        for (let i = 0; i < updatedPsList.length; i++) {
+          const ps = updatedPsList[i];
+          if (isValidUUID(ps.participant_id) && isValidUUID(ps.session_id)) {
+            // Only upload if both participant AND session exist on server
+            if (!validParticipantIds.has(ps.participant_id)) {
+              console.log(`[Upload] Skipping PS - participant not on server: ${ps.participant_id.slice(0,8)}...`);
+              continue;
+            }
+            if (!validSessionIds.has(ps.session_id)) {
+              console.log(`[Upload] Skipping PS - session not on server: ${ps.session_id.slice(0,8)}...`);
+              continue;
+            }
+            
+            if (!isValidUUID(ps.id)) {
+              ps.id = generateUUID();
+              updatedPsList[i] = ps;
+            }
+            
+            // Dedupe by composite key, keeping most recent
+            const key = `${ps.participant_id}|${ps.session_id}`;
+            const existing = psMap.get(key);
+            if (!existing || new Date(ps.updated_at || ps.created_at || 0) > new Date(existing.updated_at || existing.created_at || 0)) {
+              psMap.set(key, ps);
+            }
+          } else {
+            console.log(`[Upload] Skipping PS - invalid UUIDs: participant=${ps.participant_id?.slice(0,8)}, session=${ps.session_id?.slice(0,8)}`);
+          }
+        }
+        
+        // Convert map values to array
+        participantSessionsToUpsert.push(...psMap.values());
+        
+        // Debug: list unique participant IDs we're about to upsert
+        const uniquePIds = [...new Set(participantSessionsToUpsert.map(ps => ps.participant_id))];
+        console.log(`[Upload] Unique participant IDs in upsert: ${uniquePIds.length}`);
+        
+        // Check if any are NOT in validParticipantIds (shouldn't happen but let's verify)
+        const invalidPIds = uniquePIds.filter(pid => !validParticipantIds.has(pid));
+        if (invalidPIds.length > 0) {
+          console.error(`[Upload] BUG! Invalid participant IDs slipped through: ${invalidPIds.map(id => id.slice(0,8)).join(', ')}`);
+        }
+        
+        // Same for session IDs
+        const uniqueSIds = [...new Set(participantSessionsToUpsert.map(ps => ps.session_id))];
+        const invalidSIds = uniqueSIds.filter(sid => !validSessionIds.has(sid));
+        if (invalidSIds.length > 0) {
+          console.error(`[Upload] BUG! Invalid session IDs slipped through: ${invalidSIds.map(id => id.slice(0,8)).join(', ')}`);
+        }
+        
+        console.log(`[Upload] participant_sessions to upsert: ${participantSessionsToUpsert.length} (deduped from ${psList.length})`);
+        
+        await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updatedPsList));
+      }
+
+      if (allAttendance) {
+        const attendanceList = JSON.parse(allAttendance);
+        
+        for (const attendance of attendanceList) {
+          if (attendance.participant_id?.startsWith('local-') || 
+              attendance.session_id?.startsWith('local-') ||
+              !attendance.participant_id ||
+              !attendance.session_id ||
+              !isValidUUID(attendance.participant_id) ||
+              !isValidUUID(attendance.session_id)) {
+            continue;
+          }
+          if (!isValidUUID(attendance.id)) {
+            attendance.id = generateUUID();
+          }
+          attendanceToUpsert.push(attendance);
+        }
+      }
+
+      // Batch upsert participant_sessions and attendance IN PARALLEL
+      // For participant_sessions, remove 'id' field - let server use composite key (participant_id, session_id)
+      const psWithoutIds = participantSessionsToUpsert.map(({ id, ...rest }) => rest);
+      
+      const [psUpsertResult, attUpsertResult] = await Promise.all([
+        psWithoutIds.length > 0 
+          ? supabase.from('participant_sessions').upsert(psWithoutIds, { onConflict: 'participant_id,session_id' })
+          : Promise.resolve({ error: null }),
+        attendanceToUpsert.length > 0 
+          ? supabase.from('attendance').upsert(attendanceToUpsert, { onConflict: 'id' })
+          : Promise.resolve({ error: null })
+      ]);
+      
+      if (psUpsertResult.error) {
+        console.error('[Upload] participant_sessions upsert FAILED:', psUpsertResult.error.message);
+      } else {
+        console.log(`[Upload] participant_sessions upsert SUCCESS (${psWithoutIds.length} records)`);
+      }
+
+      // Handle deletions - compare ALL local participant_sessions vs server
+      // Use the raw local data (allPS), not the filtered participantSessionsToUpsert
+      if (allPS) {
+        const localPSList = JSON.parse(allPS);
+        
+        // Build set of ALL local participant_session keys (regardless of validity)
+        const allLocalPSKeys = new Set(
+          localPSList
+            .filter((ps: any) => isValidUUID(ps.participant_id) && isValidUUID(ps.session_id))
+            .map((ps: any) => `${ps.participant_id}|${ps.session_id}`)
+        );
+        
+        // Get ALL participants that exist on server (from downloaded data)
+        const serverParticipantIdsList = serverData.participants.map((p: any) => p.id);
+        
+        if (serverParticipantIdsList.length > 0) {
+          const { data: serverPS } = await supabase
+            .from('participant_sessions')
+            .select('participant_id, session_id')
+            .in('participant_id', serverParticipantIdsList);
+          
+          if (serverPS) {
+            // Find server records that don't exist locally - these should be deleted
+            const toDelete = serverPS.filter(sps => !allLocalPSKeys.has(`${sps.participant_id}|${sps.session_id}`));
+            
+            if (toDelete.length > 0) {
+              console.log(`[Upload] Deleting ${toDelete.length} participant_sessions removed locally`);
+              for (const sps of toDelete) {
+                console.log(`  - Deleting: participant=${sps.participant_id.slice(0,8)}... session=${sps.session_id.slice(0,8)}...`);
+              }
+              
+              // Delete all in parallel
+              await Promise.all(toDelete.map(sps => 
+                supabase
+                  .from('participant_sessions')
+                  .delete()
+                  .eq('participant_id', sps.participant_id)
+                  .eq('session_id', sps.session_id)
+              ));
+            }
+          }
+        }
+      }
+      stepStart = timer('Step 2 - Upload to server', stepStart);
+
+      // ============================================
+      // STEP 3: MERGE SERVER DATA WITH LOCAL
+      // Use the data we already downloaded in Step 1 (no re-download needed)
+      // Our uploads used upsert so server now has our changes
+      // ============================================
+      
+      await this.mergeDataWithLocal('clubs', serverData.clubs, session.user.id);
+      await this.mergeDataWithLocal('sessions', serverData.sessions, session.user.id);
+      await this.mergeDataWithLocal('participants', serverData.participants, session.user.id);
+      await this.mergeDataWithLocal('participant_sessions', serverData.participant_sessions || [], session.user.id);
+      await this.mergeDataWithLocal('attendance', serverData.attendance, session.user.id);
+      stepStart = timer('Step 3 - Merge with local', stepStart);
 
       // ============================================
       // STEP 4: DELETE ITEMS MARKED FOR DELETION
       // Only delete items explicitly marked by user
       // ============================================
-      console.log('[SyncService] STEP 4: Deleting items marked for removal...');
       
       await this.deleteMarkedItems('sessions');
       await this.deleteMarkedItems('participants');
       await this.deleteMarkedItems('attendance');
       await this.deleteMarkedItems('clubs');
+      stepStart = timer('Step 4 - Delete marked items', stepStart);
 
       // Update last sync time
       await this.updateLastSyncTime();
       const newLastSync = await this.getLastSyncTime();
       this.notifyListeners({ isSyncing: false, lastSync: newLastSync, error: null });
       
-      console.log('[SyncService] ========================================');
-      console.log('[SyncService] Sync completed successfully!');
-      console.log('[SyncService] ========================================');
+      timer('TOTAL SYNC TIME', syncStart);
       return true;
 
     } catch (error) {
-      console.error('[SyncService] Sync error:', error);
       this.notifyListeners({ 
         isSyncing: false, 
         lastSync: await this.getLastSyncTime(), 
@@ -387,10 +640,6 @@ class SyncService {
     skipParticipantIds: Set<string> = new Set()
   ) => {
     try {
-      console.log(`[SyncService] 🔄 Syncing club ${clubId} since ${since.toISOString()}`);
-
-      // Get changes from server using direct queries (no sync_log needed)
-      // For simplified schema, we just fetch all data newer than 'since'
       const sinceStr = since.toISOString();
 
       // Fetch club data (updated since last sync)
@@ -401,28 +650,13 @@ class SyncService {
         .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
 
       // Fetch sessions for this club (updated since last sync)
-      console.log(`[SyncService] 🔍 Querying sessions: club_id=${clubId}, since=${sinceStr}`);
       const { data: sessionsData, error: sessionsError } = await supabase
         .from('sessions')
         .select('*')
         .eq('club_id', clubId)
         .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
 
-      if (sessionsError) {
-        console.error('[SyncService] ❌ Sessions query error:', sessionsError);
-      }
-      console.log(`[SyncService] 📥 Server returned ${sessionsData?.length || 0} sessions`);
-      if (sessionsData && sessionsData.length > 0) {
-        sessionsData.forEach((session, idx) => {
-          console.log(`[SyncService] Session ${idx + 1}:`);
-          console.log(`  - id: ${session.id}`);
-          console.log(`  - day_of_week: ${session.day_of_week}`);
-          console.log(`  - start_time: ${session.start_time}`);
-          console.log(`  - end_time: ${session.end_time}`);
-          console.log(`  - created_at: ${session.created_at}`);
-          console.log(`  - updated_at: ${session.updated_at}`);
-        });
-      }
+
 
       // Fetch participants for this club (updated since last sync)
       const { data: participantsData } = await supabase
@@ -431,19 +665,12 @@ class SyncService {
         .eq('club_id', clubId)
         .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
 
-      console.log(`[SyncService] 📥 Server returned ${participantsData?.length || 0} participants`);
-      if (participantsData && participantsData.length > 0) {
-        console.log('[SyncService] Participants from server:', JSON.stringify(participantsData, null, 2));
-      }
-
       // Fetch participant_sessions for participants in this club
       const { data: participantSessionsData } = await supabase
         .from('participant_sessions')
         .select('*, participants!inner(club_id)')
         .eq('participants.club_id', clubId)
         .or(`created_at.gte.${sinceStr},updated_at.gte.${sinceStr}`);
-
-      console.log(`[SyncService] 📥 Server returned ${participantSessionsData?.length || 0} participant_sessions`);
 
       // Fetch attendance for participants in this club
       const { data: attendanceData } = await supabase
@@ -452,46 +679,31 @@ class SyncService {
         .eq('participants.club_id', clubId)
         .gte('created_at', sinceStr);
 
-      let hasChanges = false;
-
       // Apply changes to local storage (filter out IDs we just uploaded to prevent duplicates)
       if (clubData && clubData.length > 0) {
         await this.syncTableRecords('clubs', clubData);
-        hasChanges = true;
       }
       if (sessionsData && sessionsData.length > 0) {
         const filteredSessions = sessionsData.filter(s => !skipSessionIds.has(s.id));
         if (filteredSessions.length > 0) {
-          console.log(`[SyncService] Filtered ${sessionsData.length - filteredSessions.length} just-uploaded sessions`);
           await this.syncTableRecords('sessions', filteredSessions);
         }
-        hasChanges = true;
       }
       if (participantsData && participantsData.length > 0) {
         const filteredParticipants = participantsData.filter(p => !skipParticipantIds.has(p.id));
         if (filteredParticipants.length > 0) {
-          console.log(`[SyncService] Filtered ${participantsData.length - filteredParticipants.length} just-uploaded participants`);
           await this.syncTableRecords('participants', filteredParticipants);
         }
-        hasChanges = true;
       }
       if (participantSessionsData && participantSessionsData.length > 0) {
         await this.syncTableRecords('participant_sessions', participantSessionsData);
-        hasChanges = true;
       }
       if (attendanceData && attendanceData.length > 0) {
         await this.syncTableRecords('attendance', attendanceData);
-        hasChanges = true;
-      }
-
-      if (!hasChanges) {
-        console.log(`No changes for club ${clubId}`);
-      } else {
-        console.log(`Synced changes for club ${clubId}`);
       }
 
     } catch (error) {
-      console.error(`Error syncing club ${clubId}:`, error);
+      // Silent fail
     }
   };
 
@@ -499,12 +711,6 @@ class SyncService {
     const storageKey = this.getStorageKey(tableName);
     const local = await AsyncStorage.getItem(storageKey);
     let localRecords = local ? JSON.parse(local) : [];
-
-    console.log(`[SyncService] Syncing ${records.length} ${tableName} records to local storage`);
-    
-    if (tableName === 'participant_sessions' && records.length > 0) {
-      console.log(`[SyncService] participant_sessions data being synced:`, JSON.stringify(records, null, 2));
-    }
 
     // Merge server records into local storage
     for (const serverRecord of records) {
@@ -514,9 +720,7 @@ class SyncService {
         const localRecord = localRecords[existingIndex];
         
         // For clubs, participants, and participant_sessions, always trust server
-        // since owner makes changes and pushes them up
         if (['clubs', 'participants', 'participant_sessions'].includes(tableName)) {
-          console.log(`[SyncService] Updating ${tableName} from server:`, serverRecord.id);
           localRecords[existingIndex] = { ...localRecord, ...serverRecord };
         } else {
           // For sessions and attendance, compare timestamps
@@ -528,25 +732,19 @@ class SyncService {
             const localTime = new Date(localUpdated).getTime();
             
             if (serverTime > localTime) {
-              console.log(`[SyncService] Server ${tableName} is newer, updating local:`, serverRecord.id);
               localRecords[existingIndex] = { ...localRecord, ...serverRecord };
-            } else {
-              console.log(`[SyncService] Local ${tableName} is newer, keeping local:`, serverRecord.id);
             }
           } else {
-            console.log(`[SyncService] No timestamps, updating ${tableName}:`, serverRecord.id);
             localRecords[existingIndex] = { ...localRecord, ...serverRecord };
           }
         }
       } else {
         // Add new record from server
-        console.log(`[SyncService] Adding new ${tableName} record from server:`, serverRecord.id);
         localRecords.push(serverRecord);
       }
     }
 
     await AsyncStorage.setItem(storageKey, JSON.stringify(localRecords));
-    console.log(`[SyncService] Total ${tableName} in local storage:`, localRecords.length);
   };
 
   private getStorageKey = (tableName: string): string => {
@@ -578,19 +776,15 @@ class SyncService {
     try {
       const session = await authManager.getSession();
       if (!session) {
-        console.log('Not authenticated, cannot upload');
         return null;
       }
 
       if (operation === 'DELETE') {
         // Skip delete if record is local-only (never uploaded to server)
         if (record.id?.startsWith('local-')) {
-          console.log(`[SyncService] Skipping delete of local-only record: ${record.id}`);
           return null;
         }
         
-        // Direct delete from table (no soft deletes in simplified schema)
-        console.log(`[SyncService] Deleting ${table} record:`, record.id);
         const { data, error } = await supabase
           .from(table)
           .delete()
@@ -599,15 +793,9 @@ class SyncService {
           .maybeSingle(); // Use maybeSingle() instead of single() to allow 0 results
         
         if (error) {
-          console.error(`[SyncService] Delete error:`, error);
           throw error;
         }
         
-        if (!data) {
-          console.log(`[SyncService] Record already deleted from server: ${record.id}`);
-        } else {
-          console.log(`[SyncService] ✅ Deleted ${table}:`, record.id);
-        }
         return data;
       } else if (operation === 'INSERT' || operation === 'UPDATE') {
         // For UPDATE operations on sessions/attendance, check if local data is newer
@@ -624,7 +812,6 @@ class SyncService {
             const localTime = new Date(record.updated_at).getTime();
             
             if (localTime <= serverTime) {
-              console.log(`[SyncService] Skipping upload - server data is newer for ${table}:`, record.id);
               return serverRecord;
             }
           }
@@ -679,9 +866,12 @@ class SyncService {
             end_time
             // Don't send updated_at - let database trigger handle it
           };
-          if (id && !id.startsWith('local-')) mappedRecord.id = id;
           
-          console.log('[SyncService] Uploading session:', mappedRecord);
+          // IDs are now content-based (deterministic), so always include them
+          // This ensures same content = same ID everywhere, no duplicates possible
+          if (id && !id.startsWith('local-')) {
+            mappedRecord.id = id;
+          }
           
           const { data, error } = await supabase
             .from(table)
@@ -690,22 +880,25 @@ class SyncService {
             .single();
           
           if (error) {
-            console.error('[SyncService] Session upload error:', error);
             throw error;
           }
-          console.log('[SyncService] Session upload response:', data);
           return data;
         } else if (table === 'participants') {
-          // Participants: keep only id, club_id, first_name, last_name, is_long_term_sick (updated_at is handled by DB trigger)
-          const { id, club_id, first_name, last_name, is_long_term_sick } = cleanRecord;
+          // Participants: keep id, club_id, first_name, last_name, is_long_term_sick, updated_at
+          const { id, club_id, first_name, last_name, is_long_term_sick, updated_at } = cleanRecord;
           const mappedRecord: any = { 
             club_id,
             first_name,
             last_name,
-            is_long_term_sick: is_long_term_sick || false
-            // Don't send updated_at - let database trigger handle it
+            is_long_term_sick: is_long_term_sick || false,
+            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp for conflict resolution
           };
-          if (id && !id.startsWith('local-')) mappedRecord.id = id;
+          
+          // IDs are now content-based (deterministic), so always include them
+          // This ensures same content = same ID everywhere, no duplicates possible
+          if (id && !id.startsWith('local-')) {
+            mappedRecord.id = id;
+          }
           
           const { data, error } = await supabase
             .from(table)
@@ -716,11 +909,12 @@ class SyncService {
           if (error) throw error;
           return data;
         } else if (table === 'participant_sessions') {
-          // Participant_sessions: keep participant_id, session_id
-          const { participant_id, session_id } = cleanRecord;
+          // Participant_sessions: keep participant_id, session_id, and updated_at for conflict resolution
+          const { participant_id, session_id, updated_at } = cleanRecord;
           const mappedRecord: any = { 
             participant_id,
-            session_id
+            session_id,
+            updated_at: updated_at || new Date().toISOString() // Preserve local timestamp
           };
           // Don't include id - use the composite key (participant_id, session_id) for conflict resolution
           
@@ -736,7 +930,6 @@ class SyncService {
           // Attendance: keep participant_id, session_id, date, present
           // Note: Use UPSERT with unique constraint on (participant_id, session_id, date)
           const { id, participant_id, session_id, date, present } = cleanRecord;
-          console.log('[SyncService] Uploading attendance - id:', id, 'participant_id:', participant_id, 'session_id:', session_id);
           
           const mappedRecord: any = { 
             participant_id,
@@ -747,7 +940,6 @@ class SyncService {
           
           // Always use UPSERT with the natural key (participant_id, session_id, date)
           // The database has a unique constraint on these three fields
-          console.log('[SyncService] Upserting attendance record:', mappedRecord);
           const { data, error } = await supabase
             .from(table)
             .upsert(mappedRecord, { 
@@ -758,10 +950,8 @@ class SyncService {
             .single();
           
           if (error) {
-            console.error('[SyncService] Upsert attendance error:', error);
             throw error;
           }
-          console.log('[SyncService] Upsert attendance success:', data);
           return data;
         } else {
           // Other tables: use as-is
@@ -776,7 +966,6 @@ class SyncService {
         }
       }
     } catch (error) {
-      console.error(`Error uploading to ${table}:`, error);
       throw error;
     }
   };
@@ -793,33 +982,103 @@ class SyncService {
     const storageKey = this.getStorageKey(type);
     const localData = await AsyncStorage.getItem(storageKey);
     const localRecords = localData ? JSON.parse(localData) : [];
-    
-    console.log(`[SyncService] Merging ${serverRecords.length} ${type} from server with ${localRecords.length} local records`);
 
     // Get list of IDs marked for deletion - DON'T re-add these!
     const deletedIds = await dataService.getDeletedIds(type);
     const deletedIdsSet = new Set(deletedIds);
-    
-    if (deletedIds.length > 0) {
-      console.log(`[SyncService] Found ${deletedIds.length} ${type} marked for deletion - will skip these`);
+
+    // For participant_sessions, use composite key (participant_id + session_id) instead of id
+    if (type === 'participant_sessions') {
+      await this.mergeParticipantSessions(serverRecords, localRecords, storageKey, userId, deletedIdsSet);
+      return;
     }
 
     // Create a map of local records by ID for quick lookup
     const localMap = new Map(localRecords.map((r: any) => [r.id, r]));
     const mergedRecords = [...localRecords];
 
+    // For sessions: create a content-based map for deduplication
+    // Key format: "club_id|day_of_week|start_time|end_time"
+    const sessionContentMap = type === 'sessions' 
+      ? new Map(localRecords.map((r: any) => [`${r.club_id}|${r.day_of_week}|${r.start_time}|${r.end_time}`, r]))
+      : null;
+
+    // For participants: create a content-based map for deduplication
+    // Key format: "club_id|first_name|last_name" (lowercased for case-insensitive matching)
+    const participantContentMap = type === 'participants' 
+      ? new Map(localRecords.map((r: any) => [`${r.club_id}|${(r.first_name || '').toLowerCase()}|${(r.last_name || '').toLowerCase()}`, r]))
+      : null;
+
     for (const serverRecord of serverRecords) {
       // CRITICAL: Skip items marked for deletion
       if (deletedIdsSet.has(serverRecord.id)) {
-        console.log(`[SyncService] Skipping ${type} marked for deletion: ${serverRecord.id}`);
         continue;
       }
 
-      const localRecord = localMap.get(serverRecord.id);
+      let localRecord = localMap.get(serverRecord.id);
+
+      // For sessions: also check content-based match using the deterministic hash
+      if (!localRecord && type === 'sessions' && sessionContentMap) {
+        const contentKey = `${serverRecord.club_id}|${serverRecord.day_of_week}|${serverRecord.start_time}|${serverRecord.end_time}`;
+        const matchByContent = sessionContentMap.get(contentKey);
+        
+        // Also compute what the content hash ID should be
+        const expectedHashId = generateContentBasedId(`session|${serverRecord.club_id}|${serverRecord.day_of_week}|${serverRecord.start_time}|${serverRecord.end_time}`);
+        const matchByHashId = localMap.get(expectedHashId);
+        
+        // Prefer match by hash ID, fallback to content map
+        const matchedRecord = matchByHashId || matchByContent;
+        
+        if (matchedRecord && matchedRecord.id !== serverRecord.id) {
+          // Found a local session with same content but different ID
+          // Replace local session with server version
+          const index = mergedRecords.findIndex((r: any) => r.id === matchedRecord.id);
+          if (index >= 0) {
+            const oldId = matchedRecord.id;
+            mergedRecords[index] = { ...serverRecord };
+            
+            // Update references in attendance and participant_sessions to use new ID
+            await this.updateLocalId('sessions', oldId, serverRecord.id);
+          }
+          // Update the maps so we don't process this content again
+          sessionContentMap.delete(contentKey);
+          localMap.delete(matchedRecord.id);
+          continue;
+        }
+      }
+
+      // For participants: also check content-based match using the deterministic hash
+      if (!localRecord && type === 'participants' && participantContentMap) {
+        const contentKey = `${serverRecord.club_id}|${(serverRecord.first_name || '').toLowerCase()}|${(serverRecord.last_name || '').toLowerCase()}`;
+        const matchByContent = participantContentMap.get(contentKey);
+        
+        // Also compute what the content hash ID should be
+        const expectedHashId = generateContentBasedId(`participant|${serverRecord.club_id}|${(serverRecord.first_name || '').toLowerCase()}|${(serverRecord.last_name || '').toLowerCase()}`);
+        const matchByHashId = localMap.get(expectedHashId);
+        
+        // Prefer match by hash ID, fallback to content map
+        const matchedRecord = matchByHashId || matchByContent;
+        
+        if (matchedRecord && matchedRecord.id !== serverRecord.id) {
+          // Found a local participant with same content but different ID
+          // Replace local participant with server version
+          const index = mergedRecords.findIndex((r: any) => r.id === matchedRecord.id);
+          if (index >= 0) {
+            const oldId = matchedRecord.id;
+            mergedRecords[index] = { ...serverRecord };
+            
+            // Update references in attendance and participant_sessions to use new ID
+            await this.updateLocalId('participants', oldId, serverRecord.id);
+          }
+          // Update the maps so we don't process this content again
+          participantContentMap.delete(contentKey);
+          localMap.delete(matchedRecord.id);
+          continue;
+        }
+      }
 
       if (!localRecord) {
         // New record from server, add it
-        console.log(`[SyncService] Adding new ${type} from server: ${serverRecord.id}`);
         mergedRecords.push(serverRecord);
       } else {
         // Check if user is owner for this entity
@@ -831,6 +1090,19 @@ class SyncService {
           const clubs = await dataService.getClubs();
           const club = clubs.find(c => c.id === serverRecord.club_id);
           isOwner = club?.owner_id === userId;
+        } else if (type === 'participant_sessions') {
+          // For participant_sessions, check via participant's club ownership
+          const clubs = await dataService.getClubs();
+          const allParticipants = await AsyncStorage.getItem('@presence_app:participants');
+          const participants = allParticipants ? JSON.parse(allParticipants) : [];
+          const participant = participants.find((p: any) => p.id === serverRecord.participant_id);
+          if (participant) {
+            const club = clubs.find(c => c.id === participant.club_id);
+            isOwner = club?.owner_id === userId;
+          } else {
+            // If participant not found locally, use timestamp resolution
+            isOwner = true;
+          }
         } else if (type === 'attendance') {
           // For attendance, always use timestamp conflict resolution
           isOwner = true; // Treat everyone as having edit rights
@@ -838,7 +1110,6 @@ class SyncService {
 
         if (!isOwner && type !== 'attendance') {
           // Non-owner for clubs/sessions/participants: server ALWAYS wins
-          console.log(`[SyncService] Non-owner: Server ${type} overrides local: ${serverRecord.id}`);
           const index = mergedRecords.findIndex((r: any) => r.id === serverRecord.id);
           if (index >= 0) {
             mergedRecords[index] = serverRecord;
@@ -850,27 +1121,150 @@ class SyncService {
 
           if (serverTime > localTime) {
             // Server is newer, update local
-            console.log(`[SyncService] Server ${type} is newer, updating local: ${serverRecord.id}`);
             const index = mergedRecords.findIndex((r: any) => r.id === serverRecord.id);
             if (index >= 0) {
               mergedRecords[index] = { ...localRecord, ...serverRecord };
             }
-          } else {
-            console.log(`[SyncService] Local ${type} is newer or same, keeping local: ${localRecord.id}`);
           }
         }
       }
     }
 
     await AsyncStorage.setItem(storageKey, JSON.stringify(mergedRecords));
-    console.log(`[SyncService] Merged ${type}: ${mergedRecords.length} total records`);
+  };
+
+  /**
+   * Special merge for participant_sessions using composite key (participant_id + session_id)
+   * Local changes should win if they have a more recent timestamp
+   */
+  private mergeParticipantSessions = async (
+    serverRecords: any[], 
+    localRecords: any[], 
+    storageKey: string, 
+    userId: string,
+    deletedIdsSet: Set<string>
+  ): Promise<void> => {
+    // Get valid session IDs (sessions that actually exist)
+    const localSessionsData = await AsyncStorage.getItem('@presence_app:sessions');
+    const localSessionsList = localSessionsData ? JSON.parse(localSessionsData) : [];
+    const validSessionIds = new Set(localSessionsList.map((s: any) => s.id));
+    
+    console.log(`[PS Merge] Valid session IDs: ${validSessionIds.size}`);
+
+    // Filter out orphaned records BEFORE merging
+    const filterOrphans = (records: any[]) => 
+      records.filter(r => validSessionIds.has(r.session_id));
+    
+    const filteredLocalRecords = filterOrphans(localRecords);
+    const filteredServerRecords = filterOrphans(serverRecords);
+    
+    const localOrphans = localRecords.length - filteredLocalRecords.length;
+    const serverOrphans = serverRecords.length - filteredServerRecords.length;
+    if (localOrphans > 0 || serverOrphans > 0) {
+      console.log(`[PS Merge] Filtered orphans: ${localOrphans} local, ${serverOrphans} server`);
+    }
+
+    // Log session IDs comparison (after filtering)
+    console.log('[SyncService] Local session_ids:', [...new Set(filteredLocalRecords.map(r => r.session_id))]);
+    console.log('[SyncService] Remote session_ids:', [...new Set(filteredServerRecords.map(r => r.session_id))]);
+
+    // Group records by participant_id
+    const groupByParticipant = (records: any[]) => {
+      const map = new Map<string, any[]>();
+      for (const r of records) {
+        if (!map.has(r.participant_id)) map.set(r.participant_id, []);
+        map.get(r.participant_id)!.push(r);
+      }
+      return map;
+    };
+
+    const localByParticipant = groupByParticipant(filteredLocalRecords);
+    const serverByParticipant = groupByParticipant(filteredServerRecords);
+
+    // Get all participant IDs from both sides
+    const allParticipantIds = new Set([
+      ...localByParticipant.keys(),
+      ...serverByParticipant.keys()
+    ]);
+
+    const mergedRecords: any[] = [];
+
+    for (const participantId of allParticipantIds) {
+      const localPS = localByParticipant.get(participantId) || [];
+      const serverPS = serverByParticipant.get(participantId) || [];
+
+      // Find the most recent update on each side
+      const getLatestTime = (records: any[]) => {
+        if (records.length === 0) return 0;
+        return Math.max(...records.map(r => 
+          new Date(r.updated_at || r.created_at || 0).getTime()
+        ));
+      };
+
+      const localLatest = getLatestTime(localPS);
+      const serverLatest = getLatestTime(serverPS);
+
+      console.log(`[PS Merge] Participant ${participantId.slice(0,8)}...: local=${localPS.length} sessions (${new Date(localLatest).toISOString().slice(11,19)}), server=${serverPS.length} sessions (${new Date(serverLatest).toISOString().slice(11,19)})`);
+
+      if (localPS.length === 0) {
+        // Only server has records for this participant
+        for (const ps of serverPS) {
+          if (!deletedIdsSet.has(ps.id)) {
+            mergedRecords.push(ps);
+          }
+        }
+      } else if (serverPS.length === 0) {
+        // Only local has records for this participant
+        for (const ps of localPS) {
+          if (!deletedIdsSet.has(ps.id)) {
+            mergedRecords.push(ps);
+          }
+        }
+      } else if (localLatest > serverLatest) {
+        // Local is more recent - use ALL local sessions for this participant
+        // This means if user removed a session locally, it stays removed
+        console.log(`  -> Using LOCAL (newer)`);
+        for (const ps of localPS) {
+          if (!deletedIdsSet.has(ps.id)) {
+            mergedRecords.push(ps);
+          }
+        }
+      } else {
+        // Server is more recent or same - use ALL server sessions for this participant
+        console.log(`  -> Using SERVER (newer or same)`);
+        for (const ps of serverPS) {
+          if (!deletedIdsSet.has(ps.id)) {
+            mergedRecords.push(ps);
+          }
+        }
+      }
+    }
+
+    console.log(`[PS Merge] Final merged count: ${mergedRecords.length}`);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(mergedRecords));
+    
+    // Also clean up orphans from server
+    const allServerOrphanIds = serverRecords
+      .filter(r => !validSessionIds.has(r.session_id))
+      .map(r => ({ participant_id: r.participant_id, session_id: r.session_id }));
+    
+    if (allServerOrphanIds.length > 0) {
+      console.log(`[PS Merge] Cleaning ${allServerOrphanIds.length} orphans from server...`);
+      for (const orphan of allServerOrphanIds) {
+        await supabase
+          .from('participant_sessions')
+          .delete()
+          .eq('participant_id', orphan.participant_id)
+          .eq('session_id', orphan.session_id);
+      }
+      console.log(`[PS Merge] ✓ Server orphans cleaned`);
+    }
   };
 
   /**
    * Upload a local-only club and all its data
    */
   private uploadLocalClub = async (club: any, userId: string, uploadedIds: any): Promise<void> => {
-    console.log('[SyncService] Uploading local club:', club.name);
     try {
       const oldClubId = club.id;
       
@@ -886,7 +1280,6 @@ class SyncService {
       
       if (existingClubs && existingClubs.length > 0) {
         serverClub = existingClubs[0];
-        console.log('[SyncService] Club already exists on server:', serverClub.id);
       } else {
         // Insert new club
         const { data: newClub, error: insertError } = await supabase
@@ -938,10 +1331,8 @@ class SyncService {
           }
         }
       }
-      
-      console.log('[SyncService] ✅ Local club uploaded:', serverClub.name);
     } catch (error) {
-      console.error('[SyncService] Failed to upload local club:', error);
+      // Silent fail
     }
   };
 
@@ -978,7 +1369,6 @@ class SyncService {
           ps.session_id === oldId ? { ...ps, session_id: newId } : ps
         );
         await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updated));
-        console.log(`[SyncService] Updated participant_sessions session_id: ${oldId} → ${newId}`);
       }
     } else if (type === 'participants') {
       // Update attendance records
@@ -998,7 +1388,6 @@ class SyncService {
           ps.participant_id === oldId ? { ...ps, participant_id: newId } : ps
         );
         await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(updated));
-        console.log(`[SyncService] Updated participant_sessions participant_id: ${oldId} → ${newId}`);
       }
     } else if (type === 'clubs') {
       // Update sessions
@@ -1020,8 +1409,6 @@ class SyncService {
         await AsyncStorage.setItem('@presence_app:participants', JSON.stringify(updated));
       }
     }
-
-    console.log(`[SyncService] Updated ${type} ID: ${oldId} → ${newId}`);
   };
 
   /**
@@ -1034,12 +1421,9 @@ class SyncService {
       return;
     }
 
-    console.log(`[SyncService] Deleting ${deletedIds.length} marked ${type} from server`);
-
     for (const id of deletedIds) {
       // Skip invalid IDs (null, undefined, or local-only)
       if (!id || id === 'undefined' || id.startsWith('local-')) {
-        console.log(`[SyncService] Skipping invalid/local-only ${type}: ${id}`);
         continue;
       }
 
@@ -1048,10 +1432,8 @@ class SyncService {
           .from(type)
           .delete()
           .eq('id', id);
-        
-        console.log(`[SyncService] ✅ Deleted ${type} from server: ${id}`);
       } catch (error) {
-        console.error(`[SyncService] Failed to delete ${type} ${id}:`, error);
+        // Silent fail
       }
     }
 

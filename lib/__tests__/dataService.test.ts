@@ -345,7 +345,8 @@ describe('DataService - Session Management', () => {
     const newSession = { ...mockSession, id: '' };
     const saved = await dataService.saveSession(newSession);
 
-    expect(saved.id).toMatch(/^local-/);
+    // Now generates content-based UUID instead of local- prefix
+    expect(saved.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
       '@presence_app:sessions',
       expect.any(String)
@@ -382,7 +383,8 @@ describe('DataService - Participant Management', () => {
     const newParticipant = { ...mockParticipant, id: '' };
     const saved = await dataService.saveParticipant(newParticipant);
 
-    expect(saved.id).toMatch(/^local-/);
+    // Now generates content-based UUID instead of local- prefix
+    expect(saved.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     expect(AsyncStorage.setItem).toHaveBeenCalled();
   });
 });

@@ -171,6 +171,10 @@ export const en = {
     shareRate: 'Rate:',
     shareBonusUsed: 'Bonuses used:',
     shareBonusRemaining: 'Bonuses remaining:',
+    attendedSessions: 'Attended Sessions',
+    missedSessions: 'Missed Sessions',
+    noAttendedSessions: 'No attended sessions',
+    noMissedSessions: 'No missed sessions',
   },
 
   // Usage Limits
