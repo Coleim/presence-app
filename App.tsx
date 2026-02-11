@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProvider } from './contexts/UserContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { dataService } from './lib/dataService';
+import { authManager } from './lib/authManager';
 import LanguageSelectionScreen from './screens/LanguageSelectionScreen';
 import AuthScreen from './screens/AuthScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -53,6 +54,12 @@ function AppNavigator() {
     checkInitialRoute();
     // Check online status in background (non-blocking)
     dataService.checkOnline();
+    
+    // Pre-validate auth session to handle invalid refresh tokens early
+    // This clears any invalid sessions before the auth screen tries to use them
+    authManager.getSession().catch(() => {
+      // Silent - authManager handles clearing invalid sessions internally
+    });
   }, []);
 
   const checkInitialRoute = async () => {
@@ -74,16 +81,20 @@ function AppNavigator() {
       const neverAskAgain = await AsyncStorage.getItem(NEVER_ASK_AGAIN_KEY);
       console.log('[App] Never ask again:', neverAskAgain);
       
-      // DON'T check auth at startup - causes lock issues!
-      // Auth state will be handled by screens that need it
-      
       // Si l'utilisateur a choisi de ne jamais se connecter, aller directement à Home
       if (neverAskAgain === 'true') {
         console.log('[App] User chose offline mode, going to Home');
         setInitialRoute('Home');
       } else {
-        console.log('[App] Showing auth screen');
-        setInitialRoute('Auth');
+        // Check if user has a valid session - if so, go directly to Home
+        const session = await authManager.getSession();
+        if (session) {
+          console.log('[App] Valid session found, going to Home');
+          setInitialRoute('Home');
+        } else {
+          console.log('[App] Showing auth screen');
+          setInitialRoute('Auth');
+        }
       }
     } catch (error) {
       console.error('Error checking initial route:', error);

@@ -8,6 +8,8 @@ const redirectTo = makeRedirectUri({
   path: 'auth/callback'
 });
 
+// Key that Supabase uses to store session
+const SUPABASE_AUTH_TOKEN_KEY = 'sb-hrnfqaquyxwyavhjhlrx-auth-token';
 
 // Check if Supabase is configured
 
@@ -25,5 +27,16 @@ const supabase = createClient(
       detectSessionInUrl: false,
     },
   })
+
+/**
+ * Clear stored auth session - useful when token is invalid
+ */
+export const clearStoredSession = async (): Promise<void> => {
+  try {
+    await AsyncStorage.removeItem(SUPABASE_AUTH_TOKEN_KEY);
+  } catch (e) {
+    // Silent fail
+  }
+};
 
 export { supabase, redirectTo };

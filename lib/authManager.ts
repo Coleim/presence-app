@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, clearStoredSession } from './supabase';
 import { Session, AuthApiError } from '@supabase/supabase-js';
 
 /**
@@ -41,10 +41,8 @@ class AuthManager {
       
       if (error) {
         // Handle invalid refresh token error - sign out and clear invalid session
-        if (error instanceof AuthApiError && 
-            (error.message.includes('Refresh Token') || 
-             error.message.includes('refresh_token') ||
-             error.code === 'refresh_token_not_found')) {
+        if (this.isRefreshTokenError(error)) {
+          console.log('[AuthManager] Invalid refresh token detected, clearing session');
           await this.clearInvalidSession();
           return null;
         }
@@ -56,13 +54,31 @@ class AuthManager {
       return data.session;
     } catch (error: any) {
       // Also catch errors thrown as exceptions
-      if (error?.message?.includes('Refresh Token') || 
-          error?.message?.includes('refresh_token')) {
+      if (this.isRefreshTokenError(error)) {
+        console.log('[AuthManager] Invalid refresh token exception, clearing session');
         await this.clearInvalidSession();
         return null;
       }
       return null;
     }
+  }
+
+  /**
+   * Check if error is related to invalid refresh token
+   */
+  private isRefreshTokenError(error: any): boolean {
+    if (!error) return false;
+    
+    const message = error?.message || '';
+    const code = error?.code || '';
+    
+    return (
+      error instanceof AuthApiError ||
+      message.includes('Refresh Token') ||
+      message.includes('refresh_token') ||
+      message.includes('Invalid Refresh Token') ||
+      code === 'refresh_token_not_found'
+    );
   }
 
   /**
@@ -72,10 +88,21 @@ class AuthManager {
     try {
       // Clear cached session
       this.invalidateCache();
-      // Sign out to clear stored tokens
+      
+      // Clear Supabase's stored auth token directly from AsyncStorage
+      // This prevents Supabase from trying to use the invalid token again
+      await clearStoredSession();
+      
+      // Sign out to clear any remaining tokens
       await supabase.auth.signOut({ scope: 'local' });
     } catch (e) {
-      // Silent fail
+      console.log('[AuthManager] Error clearing invalid session:', e);
+      // Still try to remove the token even if signOut fails
+      try {
+        await clearStoredSession();
+      } catch (e2) {
+        // Silent fail
+      }
     }
   }
 

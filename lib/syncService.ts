@@ -590,9 +590,45 @@ class SyncService {
       stepStart = timer('Step 2 - Upload to server', stepStart);
 
       // ============================================
+      // STEP 2.5: UPDATE serverData WITH UPLOADED LOCAL DATA
+      // The serverData from Step 1 is stale - it doesn't have our uploads
+      // We need to merge the uploaded data into serverData so Step 3 doesn't
+      // overwrite local changes with old server values
+      // ============================================
+      
+      // Update serverData.participants with uploaded local participants
+      if (!participantsUpsertResult.error && participantsToUpsert.length > 0) {
+        const uploadedParticipantIds = new Set(participantsToUpsert.map(p => p.id));
+        // Replace server records with local records for uploaded participants
+        serverData.participants = serverData.participants.filter((p: any) => !uploadedParticipantIds.has(p.id));
+        serverData.participants.push(...participantsToUpsert);
+        console.log(`[Sync] Updated serverData.participants with ${participantsToUpsert.length} uploaded records`);
+      }
+      
+      // Update serverData.sessions with uploaded local sessions
+      if (!sessionsUpsertResult.error && sessionsToUpsert.length > 0) {
+        const uploadedSessionIds = new Set(sessionsToUpsert.map(s => s.id));
+        // Replace server records with local records for uploaded sessions
+        serverData.sessions = serverData.sessions.filter((s: any) => !uploadedSessionIds.has(s.id));
+        serverData.sessions.push(...sessionsToUpsert);
+        console.log(`[Sync] Updated serverData.sessions with ${sessionsToUpsert.length} uploaded records`);
+      }
+      
+      // Deduplicate serverData to prevent any duplicates from propagating
+      const dedupeById = (arr: any[]) => {
+        const seen = new Set<string>();
+        return arr.filter(item => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+      };
+      serverData.participants = dedupeById(serverData.participants);
+      serverData.sessions = dedupeById(serverData.sessions);
+
+      // ============================================
       // STEP 3: MERGE SERVER DATA WITH LOCAL
-      // Use the data we already downloaded in Step 1 (no re-download needed)
-      // Our uploads used upsert so server now has our changes
+      // serverData now includes our uploaded changes from Step 2.5
       // ============================================
       
       await this.mergeDataWithLocal('clubs', serverData.clubs, session.user.id);
@@ -1130,7 +1166,18 @@ class SyncService {
       }
     }
 
-    await AsyncStorage.setItem(storageKey, JSON.stringify(mergedRecords));
+    // Final deduplication by ID before saving
+    const seenIds = new Set<string>();
+    const dedupedRecords = mergedRecords.filter((r: any) => {
+      if (seenIds.has(r.id)) {
+        console.log(`[Sync] Removing duplicate ${type} with id: ${r.id}`);
+        return false;
+      }
+      seenIds.add(r.id);
+      return true;
+    });
+
+    await AsyncStorage.setItem(storageKey, JSON.stringify(dedupedRecords));
   };
 
   /**
