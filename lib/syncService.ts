@@ -19,6 +19,8 @@ class SyncService {
   private lastSyncTime = 0;
   private statusListeners: ((status: SyncStatus) => void)[] = [];
   private hasMigratedSessions = false; // Only migrate once per app session
+  private hasCleanedDuplicates = false; // Only cleanup server once per app session
+  private hasCleanedLocalDuplicates = false; // Only cleanup local once per app session
 
   /**
    * One-time migration: Update sessions to use content-based hash IDs
@@ -203,6 +205,344 @@ class SyncService {
     console.log(`[Migration] Local migration done. Migrated ${idMapping.size} session IDs.`);
   };
 
+  /**
+   * Cleanup local storage duplicates (participants and sessions)
+   */
+  private cleanupLocalDuplicates = async (): Promise<void> => {
+    if (this.hasCleanedLocalDuplicates) return;
+    
+    console.log('[Cleanup] Cleaning local storage duplicates...');
+    
+    // Cleanup local participants
+    const participantsData = await AsyncStorage.getItem('@presence_app:participants');
+    if (participantsData) {
+      const participants = JSON.parse(participantsData);
+      const participantsByContent = new Map<string, any[]>();
+      
+      for (const participant of participants) {
+        // Normalize: trim and lowercase for comparison
+        const firstName = (participant.first_name || '').trim().toLowerCase();
+        const lastName = (participant.last_name || '').trim().toLowerCase();
+        const contentKey = `${participant.club_id}|${firstName}|${lastName}`;
+        
+        if (!participantsByContent.has(contentKey)) {
+          participantsByContent.set(contentKey, []);
+        }
+        participantsByContent.get(contentKey)!.push(participant);
+      }
+      
+      const cleanedParticipants: any[] = [];
+      const participantIdMapping = new Map<string, string>(); // old ID -> kept ID
+      
+      for (const [contentKey, dups] of participantsByContent) {
+        if (dups.length > 1) {
+          console.log(`[Cleanup] Found ${dups.length} local duplicate participants for: ${contentKey}`);
+          
+          // Prefer content-based hash ID
+          const parts = contentKey.split('|');
+          const expectedHashId = generateContentBasedId(`participant|${parts[0]}|${parts[1]}|${parts[2]}`);
+          
+          let toKeep = dups.find(p => p.id === expectedHashId);
+          if (!toKeep) {
+            // Keep newest
+            toKeep = dups.reduce((newest, p) => {
+              const newestTime = new Date(newest.updated_at || newest.created_at || 0).getTime();
+              const currentTime = new Date(p.updated_at || p.created_at || 0).getTime();
+              return currentTime > newestTime ? p : newest;
+            });
+          }
+          
+          // Map all duplicate IDs to the kept one
+          for (const dup of dups) {
+            if (dup.id !== toKeep!.id) {
+              console.log(`  Mapping ${dup.id.slice(0,8)}... -> ${toKeep!.id.slice(0,8)}...`);
+              participantIdMapping.set(dup.id, toKeep!.id);
+            }
+          }
+          
+          cleanedParticipants.push(toKeep);
+        } else {
+          cleanedParticipants.push(dups[0]);
+        }
+      }
+      
+      if (participantIdMapping.size > 0) {
+        console.log(`[Cleanup] Removed ${participantIdMapping.size} duplicate local participants`);
+        await AsyncStorage.setItem('@presence_app:participants', JSON.stringify(cleanedParticipants));
+        
+        // Update participant_sessions references
+        const psData = await AsyncStorage.getItem('@presence_app:participant_sessions');
+        if (psData) {
+          const ps = JSON.parse(psData);
+          const updatedPS = ps.map((record: any) => {
+            const newId = participantIdMapping.get(record.participant_id);
+            return newId ? { ...record, participant_id: newId } : record;
+          });
+          // Also dedupe participant_sessions by composite key
+          const seenPS = new Set<string>();
+          const dedupedPS = updatedPS.filter((record: any) => {
+            const key = `${record.participant_id}|${record.session_id}`;
+            if (seenPS.has(key)) return false;
+            seenPS.add(key);
+            return true;
+          });
+          await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(dedupedPS));
+        }
+        
+        // Update attendance references
+        const attData = await AsyncStorage.getItem('@presence_app:attendance');
+        if (attData) {
+          const attendance = JSON.parse(attData);
+          const updatedAtt = attendance.map((record: any) => {
+            const newId = participantIdMapping.get(record.participant_id);
+            return newId ? { ...record, participant_id: newId } : record;
+          });
+          await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(updatedAtt));
+        }
+      }
+    }
+    
+    // Cleanup local sessions (similar logic)
+    const sessionsData = await AsyncStorage.getItem('@presence_app:sessions');
+    if (sessionsData) {
+      const sessions = JSON.parse(sessionsData);
+      const sessionsByContent = new Map<string, any[]>();
+      
+      for (const session of sessions) {
+        const contentKey = `${session.club_id}|${session.day_of_week}|${session.start_time}|${session.end_time}`;
+        if (!sessionsByContent.has(contentKey)) {
+          sessionsByContent.set(contentKey, []);
+        }
+        sessionsByContent.get(contentKey)!.push(session);
+      }
+      
+      const cleanedSessions: any[] = [];
+      const sessionIdMapping = new Map<string, string>(); // old ID -> kept ID
+      
+      for (const [contentKey, dups] of sessionsByContent) {
+        if (dups.length > 1) {
+          console.log(`[Cleanup] Found ${dups.length} local duplicate sessions for: ${contentKey}`);
+          
+          const parts = contentKey.split('|');
+          const expectedHashId = generateContentBasedId(`session|${parts[0]}|${parts[1]}|${parts[2]}|${parts[3]}`);
+          
+          let toKeep = dups.find(s => s.id === expectedHashId);
+          if (!toKeep) {
+            toKeep = dups.reduce((newest, s) => {
+              const newestTime = new Date(newest.updated_at || newest.created_at || 0).getTime();
+              const currentTime = new Date(s.updated_at || s.created_at || 0).getTime();
+              return currentTime > newestTime ? s : newest;
+            });
+          }
+          
+          for (const dup of dups) {
+            if (dup.id !== toKeep!.id) {
+              sessionIdMapping.set(dup.id, toKeep!.id);
+            }
+          }
+          
+          cleanedSessions.push(toKeep);
+        } else {
+          cleanedSessions.push(dups[0]);
+        }
+      }
+      
+      if (sessionIdMapping.size > 0) {
+        console.log(`[Cleanup] Removed ${sessionIdMapping.size} duplicate local sessions`);
+        await AsyncStorage.setItem('@presence_app:sessions', JSON.stringify(cleanedSessions));
+        
+        // Update participant_sessions references
+        const psData = await AsyncStorage.getItem('@presence_app:participant_sessions');
+        if (psData) {
+          const ps = JSON.parse(psData);
+          const updatedPS = ps.map((record: any) => {
+            const newId = sessionIdMapping.get(record.session_id);
+            return newId ? { ...record, session_id: newId } : record;
+          });
+          const seenPS = new Set<string>();
+          const dedupedPS = updatedPS.filter((record: any) => {
+            const key = `${record.participant_id}|${record.session_id}`;
+            if (seenPS.has(key)) return false;
+            seenPS.add(key);
+            return true;
+          });
+          await AsyncStorage.setItem('@presence_app:participant_sessions', JSON.stringify(dedupedPS));
+        }
+        
+        // Update attendance references
+        const attData = await AsyncStorage.getItem('@presence_app:attendance');
+        if (attData) {
+          const attendance = JSON.parse(attData);
+          const updatedAtt = attendance.map((record: any) => {
+            const newId = sessionIdMapping.get(record.session_id);
+            return newId ? { ...record, session_id: newId } : record;
+          });
+          await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(updatedAtt));
+        }
+      }
+    }
+    
+    // Cleanup duplicate attendance records by composite key (participant_id, session_id, date)
+    const attendanceData = await AsyncStorage.getItem('@presence_app:attendance');
+    if (attendanceData) {
+      const attendance = JSON.parse(attendanceData);
+      const attendanceByKey = new Map<string, any>();
+      
+      for (const record of attendance) {
+        const key = `${record.participant_id}|${record.session_id}|${record.date}`;
+        const existing = attendanceByKey.get(key);
+        if (!existing) {
+          attendanceByKey.set(key, record);
+        } else {
+          // Keep the most recent one
+          const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+          const currentTime = new Date(record.updated_at || record.created_at || 0).getTime();
+          if (currentTime > existingTime) {
+            attendanceByKey.set(key, record);
+          }
+        }
+      }
+      
+      const cleanedAttendance = Array.from(attendanceByKey.values());
+      if (cleanedAttendance.length !== attendance.length) {
+        console.log(`[Cleanup] Removed ${attendance.length - cleanedAttendance.length} duplicate attendance records`);
+        await AsyncStorage.setItem('@presence_app:attendance', JSON.stringify(cleanedAttendance));
+      }
+    }
+    
+    this.hasCleanedLocalDuplicates = true;
+    console.log('[Cleanup] Local storage cleanup complete!');
+  };
+
+  /**
+   * One-time cleanup: Remove duplicate sessions and participants from server
+   * This fixes data where the same content exists with multiple IDs
+   */
+  private cleanupServerDuplicates = async (): Promise<void> => {
+    if (this.hasCleanedDuplicates) return;
+    
+    console.log('[Cleanup] Starting server duplicate cleanup...');
+    
+    try {
+      // Cleanup duplicate sessions
+      const { data: serverSessions } = await supabase.from('sessions').select('*');
+      if (serverSessions && serverSessions.length > 0) {
+        const sessionsByContent = new Map<string, any[]>();
+        
+        for (const session of serverSessions) {
+          const contentKey = `${session.club_id}|${session.day_of_week}|${session.start_time}|${session.end_time}`;
+          if (!sessionsByContent.has(contentKey)) {
+            sessionsByContent.set(contentKey, []);
+          }
+          sessionsByContent.get(contentKey)!.push(session);
+        }
+        
+        // For each group with duplicates, keep the one with content hash ID (or newest)
+        for (const [contentKey, sessions] of sessionsByContent) {
+          if (sessions.length > 1) {
+            console.log(`[Cleanup] Found ${sessions.length} duplicate sessions for: ${contentKey}`);
+            
+            // Find the one to keep (prefer content-hash ID)
+            const parts = contentKey.split('|');
+            const expectedHashId = generateContentBasedId(`session|${parts[0]}|${parts[1]}|${parts[2]}|${parts[3]}`);
+            
+            let toKeep = sessions.find(s => s.id === expectedHashId);
+            if (!toKeep) {
+              // No content hash, keep the newest
+              toKeep = sessions.reduce((newest, s) => {
+                const newestTime = new Date(newest.updated_at || newest.created_at || 0).getTime();
+                const currentTime = new Date(s.updated_at || s.created_at || 0).getTime();
+                return currentTime > newestTime ? s : newest;
+              });
+            }
+            
+            const toDelete = sessions.filter(s => s.id !== toKeep!.id);
+            console.log(`  Keeping: ${toKeep!.id.slice(0,8)}..., Deleting: ${toDelete.map(s => s.id.slice(0,8)).join(', ')}`);
+            
+            // Transfer references and delete duplicates
+            for (const dup of toDelete) {
+              // Update participant_sessions
+              await supabase
+                .from('participant_sessions')
+                .update({ session_id: toKeep!.id })
+                .eq('session_id', dup.id);
+              
+              // Update attendance
+              await supabase
+                .from('attendance')
+                .update({ session_id: toKeep!.id })
+                .eq('session_id', dup.id);
+              
+              // Delete duplicate
+              await supabase.from('sessions').delete().eq('id', dup.id);
+            }
+          }
+        }
+      }
+      
+      // Cleanup duplicate participants
+      const { data: serverParticipants } = await supabase.from('participants').select('*');
+      if (serverParticipants && serverParticipants.length > 0) {
+        const participantsByContent = new Map<string, any[]>();
+        
+        for (const participant of serverParticipants) {
+          const contentKey = `${participant.club_id}|${(participant.first_name || '').trim().toLowerCase()}|${(participant.last_name || '').trim().toLowerCase()}`;
+          if (!participantsByContent.has(contentKey)) {
+            participantsByContent.set(contentKey, []);
+          }
+          participantsByContent.get(contentKey)!.push(participant);
+        }
+        
+        // For each group with duplicates, keep the one with content hash ID (or newest)
+        for (const [contentKey, participants] of participantsByContent) {
+          if (participants.length > 1) {
+            console.log(`[Cleanup] Found ${participants.length} duplicate participants for: ${contentKey}`);
+            
+            // Find the one to keep (prefer content-hash ID)
+            const parts = contentKey.split('|');
+            const expectedHashId = generateContentBasedId(`participant|${parts[0]}|${parts[1]}|${parts[2]}`);
+            
+            let toKeep = participants.find(p => p.id === expectedHashId);
+            if (!toKeep) {
+              // No content hash, keep the newest
+              toKeep = participants.reduce((newest, p) => {
+                const newestTime = new Date(newest.updated_at || newest.created_at || 0).getTime();
+                const currentTime = new Date(p.updated_at || p.created_at || 0).getTime();
+                return currentTime > newestTime ? p : newest;
+              });
+            }
+            
+            const toDelete = participants.filter(p => p.id !== toKeep!.id);
+            console.log(`  Keeping: ${toKeep!.id.slice(0,8)}..., Deleting: ${toDelete.map(p => p.id.slice(0,8)).join(', ')}`);
+            
+            // Transfer references and delete duplicates
+            for (const dup of toDelete) {
+              // Update participant_sessions
+              await supabase
+                .from('participant_sessions')
+                .update({ participant_id: toKeep!.id })
+                .eq('participant_id', dup.id);
+              
+              // Update attendance
+              await supabase
+                .from('attendance')
+                .update({ participant_id: toKeep!.id })
+                .eq('participant_id', dup.id);
+              
+              // Delete duplicate
+              await supabase.from('participants').delete().eq('id', dup.id);
+            }
+          }
+        }
+      }
+      
+      this.hasCleanedDuplicates = true;
+      console.log('[Cleanup] Server duplicate cleanup complete!');
+    } catch (err) {
+      console.log('[Cleanup] Error during cleanup:', err);
+    }
+  };
+
   // Start auto-sync every 30 seconds
   startAutoSync = async () => {
     if (this.syncInterval) {
@@ -259,9 +599,12 @@ class SyncService {
 
       // ============================================
       // STEP 0: MIGRATE SESSIONS TO HASH IDs (one-time)
+      //         AND CLEANUP DUPLICATES (local + server)
       // ============================================
       await this.migrateSessionsToHashIds();
-      stepStart = timer('Step 0 - Migration', stepStart);
+      await this.cleanupLocalDuplicates();
+      await this.cleanupServerDuplicates();
+      stepStart = timer('Step 0 - Migration & Cleanup', stepStart);
 
       // ============================================
       // STEP 1: DOWNLOAD ALL DATA FROM SERVER FIRST
@@ -509,6 +852,10 @@ class SyncService {
       if (allAttendance) {
         const attendanceList = JSON.parse(allAttendance);
         
+        // Use a Map to dedupe by composite key (participant_id + session_id + date)
+        // Keep the most recent record for each combination
+        const attMap = new Map<string, any>();
+        
         for (const attendance of attendanceList) {
           if (attendance.participant_id?.startsWith('local-') || 
               attendance.session_id?.startsWith('local-') ||
@@ -521,20 +868,32 @@ class SyncService {
           if (!isValidUUID(attendance.id)) {
             attendance.id = generateUUID();
           }
-          attendanceToUpsert.push(attendance);
+          
+          // Dedupe by composite key, keeping most recent
+          const key = `${attendance.participant_id}|${attendance.session_id}|${attendance.date}`;
+          const existing = attMap.get(key);
+          if (!existing || new Date(attendance.updated_at || attendance.created_at || 0) > new Date(existing.updated_at || existing.created_at || 0)) {
+            attMap.set(key, attendance);
+          }
         }
+        
+        // Convert map values to array
+        attendanceToUpsert.push(...attMap.values());
+        console.log(`[Upload] attendance to upsert: ${attendanceToUpsert.length} (deduped from ${attendanceList.length})`);
       }
 
       // Batch upsert participant_sessions and attendance IN PARALLEL
       // For participant_sessions, remove 'id' field - let server use composite key (participant_id, session_id)
       const psWithoutIds = participantSessionsToUpsert.map(({ id, ...rest }) => rest);
+      // For attendance, remove 'id' field - use composite key (participant_id, session_id, date)
+      const attWithoutIds = attendanceToUpsert.map(({ id, ...rest }) => rest);
       
       const [psUpsertResult, attUpsertResult] = await Promise.all([
         psWithoutIds.length > 0 
           ? supabase.from('participant_sessions').upsert(psWithoutIds, { onConflict: 'participant_id,session_id' })
           : Promise.resolve({ error: null }),
-        attendanceToUpsert.length > 0 
-          ? supabase.from('attendance').upsert(attendanceToUpsert, { onConflict: 'id' })
+        attWithoutIds.length > 0 
+          ? supabase.from('attendance').upsert(attWithoutIds, { onConflict: 'participant_id,session_id,date' })
           : Promise.resolve({ error: null })
       ]);
       
@@ -542,6 +901,12 @@ class SyncService {
         console.error('[Upload] participant_sessions upsert FAILED:', psUpsertResult.error.message);
       } else {
         console.log(`[Upload] participant_sessions upsert SUCCESS (${psWithoutIds.length} records)`);
+      }
+      
+      if (attUpsertResult.error) {
+        console.error('[Upload] attendance upsert FAILED:', attUpsertResult.error.message);
+      } else {
+        console.log(`[Upload] attendance upsert SUCCESS (${attWithoutIds.length} records)`);
       }
 
       // Handle deletions - compare ALL local participant_sessions vs server
@@ -614,17 +979,89 @@ class SyncService {
         console.log(`[Sync] Updated serverData.sessions with ${sessionsToUpsert.length} uploaded records`);
       }
       
+      // Update serverData.attendance with uploaded local attendance
+      // Use composite key (participant_id, session_id, date) for matching
+      if (!attUpsertResult.error && attendanceToUpsert.length > 0) {
+        const uploadedAttendanceKeys = new Set(
+          attendanceToUpsert.map(a => `${a.participant_id}|${a.session_id}|${a.date}`)
+        );
+        // Replace server records with local records for uploaded attendance
+        serverData.attendance = serverData.attendance.filter((a: any) => 
+          !uploadedAttendanceKeys.has(`${a.participant_id}|${a.session_id}|${a.date}`)
+        );
+        serverData.attendance.push(...attendanceToUpsert);
+        console.log(`[Sync] Updated serverData.attendance with ${attendanceToUpsert.length} uploaded records`);
+      }
+      
       // Deduplicate serverData to prevent any duplicates from propagating
-      const dedupeById = (arr: any[]) => {
-        const seen = new Set<string>();
-        return arr.filter(item => {
-          if (seen.has(item.id)) return false;
-          seen.add(item.id);
-          return true;
-        });
+      // Use CONTENT-BASED deduplication for sessions and participants, not just ID
+      const dedupeSessionsByContent = (arr: any[]) => {
+        const seenContent = new Map<string, any>(); // content -> record (keep newest)
+        for (const item of arr) {
+          const contentKey = `${item.club_id}|${item.day_of_week}|${item.start_time}|${item.end_time}`;
+          const existing = seenContent.get(contentKey);
+          if (!existing) {
+            seenContent.set(contentKey, item);
+          } else {
+            // Keep the one with the content-based hash ID, or the newer one
+            const expectedHashId = generateContentBasedId(`session|${item.club_id}|${item.day_of_week}|${item.start_time}|${item.end_time}`);
+            if (item.id === expectedHashId) {
+              console.log(`[Dedupe] Keeping content-hash session ${item.id.slice(0,8)}... over ${existing.id.slice(0,8)}...`);
+              seenContent.set(contentKey, item);
+            } else if (existing.id !== expectedHashId) {
+              // Neither has content hash, keep newer
+              const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+              const itemTime = new Date(item.updated_at || item.created_at || 0).getTime();
+              if (itemTime > existingTime) {
+                console.log(`[Dedupe] Keeping newer session ${item.id.slice(0,8)}... over ${existing.id.slice(0,8)}...`);
+                seenContent.set(contentKey, item);
+              }
+            }
+            // else: existing has content hash, keep it
+          }
+        }
+        return Array.from(seenContent.values());
       };
-      serverData.participants = dedupeById(serverData.participants);
-      serverData.sessions = dedupeById(serverData.sessions);
+
+      const dedupeParticipantsByContent = (arr: any[]) => {
+        const seenContent = new Map<string, any>(); // content -> record (keep newest)
+        for (const item of arr) {
+          const contentKey = `${item.club_id}|${(item.first_name || '').trim().toLowerCase()}|${(item.last_name || '').trim().toLowerCase()}`;
+          const existing = seenContent.get(contentKey);
+          if (!existing) {
+            seenContent.set(contentKey, item);
+          } else {
+            // Keep the one with the content-based hash ID, or the newer one
+            const expectedHashId = generateContentBasedId(`participant|${item.club_id}|${(item.first_name || '').trim().toLowerCase()}|${(item.last_name || '').trim().toLowerCase()}`);
+            if (item.id === expectedHashId) {
+              console.log(`[Dedupe] Keeping content-hash participant ${item.id.slice(0,8)}... over ${existing.id.slice(0,8)}...`);
+              seenContent.set(contentKey, item);
+            } else if (existing.id !== expectedHashId) {
+              // Neither has content hash, keep newer
+              const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+              const itemTime = new Date(item.updated_at || item.created_at || 0).getTime();
+              if (itemTime > existingTime) {
+                console.log(`[Dedupe] Keeping newer participant ${item.id.slice(0,8)}... over ${existing.id.slice(0,8)}...`);
+                seenContent.set(contentKey, item);
+              }
+            }
+            // else: existing has content hash, keep it
+          }
+        }
+        return Array.from(seenContent.values());
+      };
+
+      const originalSessionCount = serverData.sessions.length;
+      const originalParticipantCount = serverData.participants.length;
+      serverData.sessions = dedupeSessionsByContent(serverData.sessions);
+      serverData.participants = dedupeParticipantsByContent(serverData.participants);
+      
+      if (originalSessionCount !== serverData.sessions.length) {
+        console.log(`[Sync] Removed ${originalSessionCount - serverData.sessions.length} duplicate sessions by content`);
+      }
+      if (originalParticipantCount !== serverData.participants.length) {
+        console.log(`[Sync] Removed ${originalParticipantCount - serverData.participants.length} duplicate participants by content`);
+      }
 
       // ============================================
       // STEP 3: MERGE SERVER DATA WITH LOCAL
@@ -1029,20 +1466,26 @@ class SyncService {
       return;
     }
 
+    // For attendance, use composite key (participant_id + session_id + date) instead of id
+    if (type === 'attendance') {
+      await this.mergeAttendance(serverRecords, localRecords, storageKey, deletedIdsSet);
+      return;
+    }
+
     // Create a map of local records by ID for quick lookup
-    const localMap = new Map(localRecords.map((r: any) => [r.id, r]));
+    const localMap = new Map<string, any>(localRecords.map((r: any) => [r.id, r]));
     const mergedRecords = [...localRecords];
 
     // For sessions: create a content-based map for deduplication
     // Key format: "club_id|day_of_week|start_time|end_time"
-    const sessionContentMap = type === 'sessions' 
-      ? new Map(localRecords.map((r: any) => [`${r.club_id}|${r.day_of_week}|${r.start_time}|${r.end_time}`, r]))
+    const sessionContentMap: Map<string, any> | null = type === 'sessions' 
+      ? new Map<string, any>(localRecords.map((r: any) => [`${r.club_id}|${r.day_of_week}|${r.start_time}|${r.end_time}`, r]))
       : null;
 
     // For participants: create a content-based map for deduplication
     // Key format: "club_id|first_name|last_name" (lowercased for case-insensitive matching)
-    const participantContentMap = type === 'participants' 
-      ? new Map(localRecords.map((r: any) => [`${r.club_id}|${(r.first_name || '').toLowerCase()}|${(r.last_name || '').toLowerCase()}`, r]))
+    const participantContentMap: Map<string, any> | null = type === 'participants' 
+      ? new Map<string, any>(localRecords.map((r: any) => [`${r.club_id}|${(r.first_name || '').trim().toLowerCase()}|${(r.last_name || '').trim().toLowerCase()}`, r]))
       : null;
 
     for (const serverRecord of serverRecords) {
@@ -1085,11 +1528,11 @@ class SyncService {
 
       // For participants: also check content-based match using the deterministic hash
       if (!localRecord && type === 'participants' && participantContentMap) {
-        const contentKey = `${serverRecord.club_id}|${(serverRecord.first_name || '').toLowerCase()}|${(serverRecord.last_name || '').toLowerCase()}`;
+        const contentKey = `${serverRecord.club_id}|${(serverRecord.first_name || '').trim().toLowerCase()}|${(serverRecord.last_name || '').trim().toLowerCase()}`;
         const matchByContent = participantContentMap.get(contentKey);
         
         // Also compute what the content hash ID should be
-        const expectedHashId = generateContentBasedId(`participant|${serverRecord.club_id}|${(serverRecord.first_name || '').toLowerCase()}|${(serverRecord.last_name || '').toLowerCase()}`);
+        const expectedHashId = generateContentBasedId(`participant|${serverRecord.club_id}|${(serverRecord.first_name || '').trim().toLowerCase()}|${(serverRecord.last_name || '').trim().toLowerCase()}`);
         const matchByHashId = localMap.get(expectedHashId);
         
         // Prefer match by hash ID, fallback to content map
@@ -1114,6 +1557,30 @@ class SyncService {
       }
 
       if (!localRecord) {
+        // For sessions: check if we already added a record with the same content from server
+        if (type === 'sessions' && sessionContentMap) {
+          const contentKey = `${serverRecord.club_id}|${serverRecord.day_of_week}|${serverRecord.start_time}|${serverRecord.end_time}`;
+          if (sessionContentMap.has(contentKey)) {
+            // Already have a record with this content, skip this duplicate
+            console.log(`[Merge] Skipping duplicate session from server: ${serverRecord.id.slice(0,8)}... (content already exists)`);
+            continue;
+          }
+          // Add to content map so future server records with same content are skipped
+          sessionContentMap.set(contentKey, serverRecord);
+        }
+        
+        // For participants: check if we already added a record with the same content from server
+        if (type === 'participants' && participantContentMap) {
+          const contentKey = `${serverRecord.club_id}|${(serverRecord.first_name || '').trim().toLowerCase()}|${(serverRecord.last_name || '').trim().toLowerCase()}`;
+          if (participantContentMap.has(contentKey)) {
+            // Already have a record with this content, skip this duplicate
+            console.log(`[Merge] Skipping duplicate participant from server: ${serverRecord.id.slice(0,8)}... (content already exists)`);
+            continue;
+          }
+          // Add to content map so future server records with same content are skipped
+          participantContentMap.set(contentKey, serverRecord);
+        }
+        
         // New record from server, add it
         mergedRecords.push(serverRecord);
       } else {
@@ -1306,6 +1773,85 @@ class SyncService {
       }
       console.log(`[PS Merge] ✓ Server orphans cleaned`);
     }
+  };
+
+  /**
+   * Merge attendance records using composite key (participant_id + session_id + date)
+   * Local always wins if it was modified more recently
+   */
+  private mergeAttendance = async (
+    serverRecords: any[],
+    localRecords: any[],
+    storageKey: string,
+    deletedIdsSet: Set<string>
+  ): Promise<void> => {
+    console.log(`[Attendance Merge] Server: ${serverRecords.length}, Local: ${localRecords.length}`);
+
+    // Create maps by composite key (participant_id + session_id + date)
+    const getKey = (r: any) => `${r.participant_id}|${r.session_id}|${r.date}`;
+    
+    const localByKey = new Map<string, any>();
+    for (const r of localRecords) {
+      localByKey.set(getKey(r), r);
+    }
+    
+    const serverByKey = new Map<string, any>();
+    for (const r of serverRecords) {
+      serverByKey.set(getKey(r), r);
+    }
+
+    const mergedRecords: any[] = [];
+    const processedKeys = new Set<string>();
+
+    // Process all local records first (local takes precedence for existing records)
+    for (const localRecord of localRecords) {
+      const key = getKey(localRecord);
+      
+      // Skip if marked for deletion
+      if (deletedIdsSet.has(localRecord.id)) {
+        console.log(`[Attendance Merge] Skipping deleted: ${key}`);
+        continue;
+      }
+      
+      processedKeys.add(key);
+      
+      const serverRecord = serverByKey.get(key);
+      if (!serverRecord) {
+        // Only exists locally, keep it
+        mergedRecords.push(localRecord);
+      } else {
+        // Exists in both - compare timestamps, local wins if newer or equal
+        const localTime = new Date(localRecord.updated_at || localRecord.created_at || 0).getTime();
+        const serverTime = new Date(serverRecord.updated_at || serverRecord.created_at || 0).getTime();
+        
+        if (localTime >= serverTime) {
+          // Local is newer or same - keep local
+          mergedRecords.push(localRecord);
+        } else {
+          // Server is newer - use server but keep local id if different
+          const merged = { ...serverRecord };
+          if (localRecord.id && !serverRecord.id) {
+            merged.id = localRecord.id;
+          }
+          mergedRecords.push(merged);
+        }
+      }
+    }
+
+    // Add server records that don't exist locally
+    for (const serverRecord of serverRecords) {
+      const key = getKey(serverRecord);
+      
+      // Skip if already processed or marked for deletion
+      if (processedKeys.has(key) || deletedIdsSet.has(serverRecord.id)) {
+        continue;
+      }
+      
+      mergedRecords.push(serverRecord);
+    }
+
+    console.log(`[Attendance Merge] Final count: ${mergedRecords.length}`);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(mergedRecords));
   };
 
   /**

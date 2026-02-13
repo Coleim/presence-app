@@ -685,8 +685,8 @@ class DataService {
     // Add updated_at timestamp
     participant.updated_at = new Date().toISOString();
     
-    // Always compute content-based hash ID
-    const contentKey = `participant|${participant.club_id}|${(participant.first_name || '').toLowerCase()}|${(participant.last_name || '').toLowerCase()}`;
+    // Always compute content-based hash ID (normalize names: trim & lowercase)
+    const contentKey = `participant|${participant.club_id}|${(participant.first_name || '').trim().toLowerCase()}|${(participant.last_name || '').trim().toLowerCase()}`;
     const contentHashId = generateContentBasedId(contentKey);
     
     // Find existing by current ID
@@ -792,13 +792,17 @@ class DataService {
     const date = firstRecord.date;
     attendance = attendance.filter((a: AttendanceRecord) => !(a.session_id === sessionId && a.date === date));
     
-    // Add new records with timestamps (no ID - database will generate UUID on insert)
-    const recordsWithTimestamps = records.map(record => ({
-      ...record,
-      updated_at: new Date().toISOString(),
-      // Remove any existing ID so database generates a new UUID
-      id: undefined
-    }));
+    // Add new records with timestamps and content-based IDs
+    // Using content-based ID ensures same attendance always has same ID
+    const recordsWithTimestamps = records.map(record => {
+      const contentKey = `attendance|${record.participant_id}|${record.session_id}|${record.date}`;
+      const contentId = generateContentBasedId(contentKey);
+      return {
+        ...record,
+        id: record.id || contentId, // Use existing ID or generate content-based ID
+        updated_at: new Date().toISOString(),
+      };
+    });
     
     attendance.push(...recordsWithTimestamps);
     

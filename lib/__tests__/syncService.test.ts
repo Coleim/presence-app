@@ -94,6 +94,9 @@ beforeEach(() => {
   // Reset syncService state
   (syncService as any).isSyncing = false;
   (syncService as any).lastSyncTime = 0;
+  (syncService as any).hasMigratedSessions = true; // Skip migration in tests
+  (syncService as any).hasCleanedDuplicates = true; // Skip server cleanup in tests
+  (syncService as any).hasCleanedLocalDuplicates = true; // Skip local cleanup in tests
 });
 
 describe('SyncService - Batch Upload Optimization', () => {
